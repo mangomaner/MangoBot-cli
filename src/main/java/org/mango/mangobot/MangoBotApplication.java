@@ -10,7 +10,6 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @EnableScheduling
 @EnableAspectJAutoProxy(proxyTargetClass = true, exposeProxy = true)
 public class MangoBotApplication {
-
     public static void main(String[] args) {
         SpringApplication.run(MangoBotApplication.class, args);
     }

@@ -1,11 +1,10 @@
 package org.mango.mangobot.messageHandler;
 
-import dev.langchain4j.community.model.dashscope.QwenChatModel;
-import jakarta.annotation.Resource;
-import lombok.extern.slf4j.Slf4j;
-import org.mango.mangobot.annotation.QQ.method.*;
+import org.mango.mangobot.annotation.QQ.method.AtMessage;
+import org.mango.mangobot.annotation.QQ.method.AtTextImageReplyMessage;
+import org.mango.mangobot.annotation.QQ.method.PokeMessage;
+import org.mango.mangobot.annotation.QQ.method.TextMessage;
 import org.mango.mangobot.annotation.QQ.parameter.*;
-import org.mango.mangobot.service.impl.GroupMessageService;
 import org.springframework.stereotype.Component;
 
 /**
@@ -22,11 +21,7 @@ import org.springframework.stereotype.Component;
 public interface GroupMessageHandler {
 
     /**
-     * 文本、at、图片、回复 消息组合事件（单独事件，请勿和其他进行组合）
-     * @param fromUser
-     * @param content
-     * @param groupId
-     * @param imageUrl
+     * 文本、at、图片、回复 消息组合事件（单独事件，请勿和其他进行组合，优先级最低，相当于保底）
      */
     @AtTextImageReplyMessage
     public void handleCombinationMessage(@SenderId String fromUser, // 消息发送者id
@@ -37,8 +32,21 @@ public interface GroupMessageHandler {
                                          @TargetId String targetId);// 如果存在@消息，@对象的id
 
     /**
+     * 处理文本消息（如果只有文本消息，则匹配该方法）
+     */
+    @TextMessage
+    public void handleTextMessage(@SenderId String fromUser, @Content String content);
+
+    /**
+     * 处理文本和At的组合消息（如果同时有 文本和At 的消息，则匹配该方法）
+     * 值得注意的是，QQ的At消息后默认会存在一个空格，该空格会被识别为Text，因此一般不建议单独使用 @AtMessage
+     */
+    @TextMessage
+    @AtMessage
+    public void handleTextWithAtMessage(@SenderId String fromUser, @Content String content, @TargetId String targetId);
+
+    /**
      * 戳一戳事件（单独事件，请勿和其他进行组合）
-     * @param fromUser
      */
     @PokeMessage
     public void handlePoke(@SenderId String fromUser,   // 戳一戳发送者id

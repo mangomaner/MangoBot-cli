@@ -6,10 +6,10 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.mango.mangobot.annotation.QQ.QQMessageHandlerType;
 import org.mango.mangobot.annotation.QQ.method.*;
+import org.mango.mangobot.messageHandler.GroupMessageHandler;
 import org.mango.mangobot.messageHandler.messageStore.ChatMessageStoreService;
 import org.mango.mangobot.model.QQ.QQMessage;
 import org.mango.mangobot.model.QQ.ReceiveMessageSegment;
-import org.mango.mangobot.messageHandler.GroupMessageHandler;
 import org.mango.mangobot.utils.MethodParameter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -183,17 +183,16 @@ public class MessageReflect {
 
             if (annotations.isEmpty()) continue;
 
+            // 如果有一个消息与注解匹配不上，就为false，表示不执行该方法
             boolean allAnnotationsMatch = true;
-
-
 
             // 判断消息中的 segment类型数量 是否与 注解类型数量 匹配
             List<ReceiveMessageSegment> segments = message.getMessage();
             Set<String> segmentTypes = null;
             if(segments != null) {
-                segments.stream().map(ReceiveMessageSegment::getType).collect(Collectors.toSet());
-
-                if (annotations.size() == 1) {
+                segmentTypes = segments.stream().map(ReceiveMessageSegment::getType).collect(Collectors.toSet());
+                // 规则：优先级最低，若已有bestMatch则直接跳过，若没有且符合规则就暂时标为bestMatch并继续循环
+                if (annotations.size() == 1 && bestMatch == null) {
                     // 匹配 @TextImageReplyMessage
                     if (annotations.get(0) instanceof AtTextImageReplyMessage) {
                         boolean hasRightSegement = true;
@@ -205,14 +204,13 @@ public class MessageReflect {
                             } else if (segment.getType().equals("at")) {
                             } else {
                                 hasRightSegement = false;
+                                break;
                             }
                         }
-                        if (!hasRightSegement) {
-                            allAnnotationsMatch = false;
-                            break;
-                        } else {
+                        // 如果满足条件
+                        if (hasRightSegement) {
                             bestMatch = method;
-                            break;
+                            continue;
                         }
                     }
                 }

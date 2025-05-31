@@ -1,21 +1,13 @@
 package org.mango.mangobot.messageHandler.messageStore.impl;
 
-import co.elastic.clients.elasticsearch.ElasticsearchClient;
-import co.elastic.clients.elasticsearch.core.IndexRequest;
-import co.elastic.clients.elasticsearch.core.UpdateRequest;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.mango.mangobot.messageHandler.messageStore.ChatMessageStoreService;
-import org.mango.mangobot.messageHandler.messageStore.collection.QQMessageCollection;
 import org.mango.mangobot.model.QQ.QQMessage;
-import org.springframework.beans.BeanUtils;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
 /**

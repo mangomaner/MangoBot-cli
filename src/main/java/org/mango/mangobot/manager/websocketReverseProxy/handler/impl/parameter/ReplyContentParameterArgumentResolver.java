@@ -1,8 +1,6 @@
 package org.mango.mangobot.manager.websocketReverseProxy.handler.impl.parameter;
 
-import co.elastic.clients.elasticsearch.ElasticsearchClient;
-import co.elastic.clients.elasticsearch.core.GetRequest;
-import co.elastic.clients.elasticsearch.core.GetResponse;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.Resource;
 import org.mango.mangobot.annotation.QQ.parameter.ReplyContent;
@@ -13,14 +11,12 @@ import org.mango.mangobot.model.QQ.ReceiveMessageSegment;
 import org.mango.mangobot.utils.MethodParameter;
 import org.springframework.stereotype.Component;
 
-import java.io.IOException;
 import java.util.List;
-import java.util.Map;
 
 @Component
 public class ReplyContentParameterArgumentResolver implements ParameterArgumentResolver {
-    @Resource
-    private ElasticsearchClient client;
+//    @Resource
+//    private ElasticsearchClient client;
     @Resource
     private ObjectMapper objectMapper;
 
@@ -50,24 +46,25 @@ public class ReplyContentParameterArgumentResolver implements ParameterArgumentR
     }
 
     private QQMessageCollection findMessageById(Integer messageId, String groupId) {
-        GetRequest request = GetRequest.of(b -> b
-                .index("chat_group_" + groupId)
-                .id(messageId.toString())
-        );
-
-        GetResponse<Object> response = null;
-        try {
-            response = client.get(request, Object.class);
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-
-        if (!response.found()) {
-            return null;
-        }
-
-        Map<String, Object> source = (Map<String, Object>) response.source();
-        return objectMapper.convertValue(source, QQMessageCollection.class);
+//        GetRequest request = GetRequest.of(b -> b
+//                .index("chat_group_" + groupId)
+//                .id(messageId.toString())
+//        );
+//
+//        GetResponse<Object> response = null;
+//        try {
+//            response = client.get(request, Object.class);
+//        } catch (IOException e) {
+//            throw new RuntimeException(e);
+//        }
+//
+//        if (!response.found()) {
+//            return null;
+//        }
+//
+//        Map<String, Object> source = (Map<String, Object>) response.source();
+//        return objectMapper.convertValue(source, QQMessageCollection.class);
+        return null;
     }
 
     private String parseMessageContent(QQMessageCollection qqMessageCollection) {
