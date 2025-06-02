@@ -11,8 +11,8 @@
     <groupId>org.mango</groupId>
     <artifactId>mangoBot</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>mango-bot</name>
-    <description>mango-bot</description>
+    <name>mangoBot</name>
+    <description>mangoBot</description>
 
     <properties>
         <java.version>17</java.version>
