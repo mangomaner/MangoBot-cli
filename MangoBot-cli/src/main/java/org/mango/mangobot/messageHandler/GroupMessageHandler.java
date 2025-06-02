@@ -1,10 +1,10 @@
 package org.mango.mangobot.messageHandler;
 
-import org.mango.mangobot.QQ.method.AtMessage;
-import org.mango.mangobot.QQ.method.AtTextImageReplyMessage;
-import org.mango.mangobot.QQ.method.PokeMessage;
-import org.mango.mangobot.QQ.method.TextMessage;
-import org.mango.mangobot.QQ.parameter.*;
+import org.mango.mangobot.annotation.QQ.method.AtMessage;
+import org.mango.mangobot.annotation.QQ.method.AtTextImageReplyMessage;
+import org.mango.mangobot.annotation.QQ.method.PokeMessage;
+import org.mango.mangobot.annotation.QQ.method.TextMessage;
+import org.mango.mangobot.annotation.QQ.parameter.*;
 import org.springframework.stereotype.Component;
 
 /**

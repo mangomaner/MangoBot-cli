@@ -1,37 +1,46 @@
 package org.mango.mangobot.plugin;
 
-import org.mango.mangobot.QQ.method.TextMessage;
 import org.springframework.stereotype.Component;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Component
 public class MessageDispatcher {
 
-    private final Map<Class<?>, List<RegisteredHandler>> handlers = new HashMap<>();
+    // 支持多种消息类型的处理器映射表
+    private final Map<Class<?>, List<RegisteredHandler>> handlers = new ConcurrentHashMap<>();
 
+    /**
+     * 注册一个带注解的方法为消息处理器
+     */
     public void registerHandlerMethod(Object instance, Method method) {
-        if (method.isAnnotationPresent(TextMessage.class)) {
-            addHandler(TextMessage.class, new RegisteredHandler(instance, method));
-        }
-        // 其他注解也可以添加，比如 AtMessage、PokeMessage 等
+        Arrays.stream(method.getAnnotations())
+                .filter(annotation -> annotation.annotationType().getName().startsWith("org.mango.mangobot.annotation.QQ.method"))
+                .forEach(annotation -> {
+                    Class<?> annotationType = annotation.annotationType();
+                    addHandler(annotationType, new RegisteredHandler(instance, method));
+                });
     }
 
+    /**
+     * 添加一个处理器到指定消息类型下
+     */
     private void addHandler(Class<?> annotationType, RegisteredHandler handler) {
         handlers.computeIfAbsent(annotationType, k -> new ArrayList<>()).add(handler);
     }
 
-    public void dispatchTextMessage(String fromUser, String content) {
-        List<RegisteredHandler> list = handlers.get(TextMessage.class);
+    /**
+     * 分发某种类型的消息给所有匹配的处理器
+     */
+    public void dispatchMessage(Class<?> messageType, Object... args) {
+        List<RegisteredHandler> list = handlers.get(messageType);
         if (list != null) {
             for (RegisteredHandler handler : list) {
                 try {
-                    handler.invoke(fromUser, content);
+                    handler.invoke(args);
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
@@ -39,6 +48,9 @@ public class MessageDispatcher {
         }
     }
 
+    /**
+     * 内部类：封装处理器方法和实例
+     */
     public static class RegisteredHandler {
         private final Object instance;
         private final Method method;

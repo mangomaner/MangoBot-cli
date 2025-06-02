@@ -1,10 +1,10 @@
 package org.mango.mangobot.plugin;
 
-import org.mango.mangobot.QQ.method.AtMessage;
-import org.mango.mangobot.QQ.method.AtTextImageReplyMessage;
-import org.mango.mangobot.QQ.method.PokeMessage;
-import org.mango.mangobot.QQ.method.TextMessage;
-import org.springframework.beans.factory.annotation.Autowired;
+import jakarta.annotation.Resource;
+import org.mango.mangobot.annotation.QQ.method.AtMessage;
+import org.mango.mangobot.annotation.QQ.method.AtTextImageReplyMessage;
+import org.mango.mangobot.annotation.QQ.method.PokeMessage;
+import org.mango.mangobot.annotation.QQ.method.TextMessage;
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
 
@@ -17,16 +17,12 @@ import java.util.jar.JarFile;
 
 @Component
 public class PluginManager {
-
-    @Autowired
+    @Resource
     private ApplicationContext applicationContext;
-
-    @Autowired
+    @Resource
     private MessageDispatcher messageDispatcher;
-
     private final List<Plugin> plugins = new ArrayList<>();
     private final Map<String, PluginClassLoader> classLoaders = new HashMap<>();
-
     private final String PLUGIN_DIR = "plugins";
 
     public void loadPlugins() {
@@ -68,7 +64,7 @@ public class PluginManager {
                         // 注册消息处理方法
                         registerHandlers(plugin);
 
-                        System.out.println("✅ 已加载插件: " + clazz.getName());
+                        System.out.println("已加载插件: " + clazz.getName());
                     }
                 }
             }
