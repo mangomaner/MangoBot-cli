@@ -1,8 +1,6 @@
 package org.mango.mangobot.service;
 
 
-import java.util.List;
-
 public interface GroupMessage {
     /**
      * 发送纯文本消息

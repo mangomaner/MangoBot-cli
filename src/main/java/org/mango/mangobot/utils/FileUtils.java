@@ -33,9 +33,9 @@ public class FileUtils {
         try {
             jarPath = java.net.URLDecoder.decode(url.getFile(), "UTF-8");
             if (jarPath.endsWith(".jar")) {
-                jarPath = new java.io.File(jarPath).getParentFile().getAbsolutePath();
+                jarPath = new File(jarPath).getParentFile().getAbsolutePath();
             } else {
-                jarPath = new java.io.File("").getAbsolutePath();
+                jarPath = new File("").getAbsolutePath();
             }
         } catch (Exception e) {
             throw new RuntimeException(e);
