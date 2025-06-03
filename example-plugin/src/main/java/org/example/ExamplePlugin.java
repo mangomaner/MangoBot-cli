@@ -1,5 +1,6 @@
 package org.example;
 
+import org.mango.mangobot.annotation.PluginPriority;
 import org.mango.mangobot.annotation.QQ.method.TextMessage;
 import org.mango.mangobot.annotation.QQ.parameter.Content;
 import org.mango.mangobot.annotation.QQ.parameter.SenderId;
@@ -18,6 +19,7 @@ public class ExamplePlugin implements Plugin {
     }
 
     @TextMessage
+    @PluginPriority(100)
     public void handleTextMessage(@SenderId String fromUser, @Content String content) {
         System.out.println("[ExamplePlugin] 收到文本消息：" + content + " from: " + fromUser);
     }

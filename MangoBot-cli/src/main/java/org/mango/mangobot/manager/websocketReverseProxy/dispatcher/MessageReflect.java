@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.mango.mangobot.annotation.PluginPriority;
 import org.mango.mangobot.annotation.QQ.QQMessageHandlerType;
 import org.mango.mangobot.annotation.QQ.method.*;
 import org.mango.mangobot.manager.websocketReverseProxy.dispatcher.impl.AnnotationUtils;
@@ -163,7 +164,10 @@ public class MessageReflect {
 
         Set<String> segmentTypes = AnnotationUtils.getSegmentTypes(message);
 
+
         // ===== 第一阶段：匹配普通注解 =====
+        List<RegisteredHandler> candidates = new ArrayList<>();
+
         for (Map.Entry<Method, RegisteredHandler> entry : messageHandlers.entrySet()) {
             RegisteredHandler register = entry.getValue();
             List<Annotation> annotations = entry.getValue().getAnnotations();
@@ -176,6 +180,10 @@ public class MessageReflect {
                 if (message.getMessage() != null && !message.getMessage().isEmpty()) continue;
             } else {
                 // 正常情况：注解数量必须等于 segment 类型种类数
+                annotations = annotations.stream()
+                        .filter(a -> !(a instanceof PluginPriority))
+                        .toList();
+
                 if (annotations.size() != segmentTypes.size()) continue;
             }
 
@@ -184,13 +192,15 @@ public class MessageReflect {
                     .allMatch(annotation -> handlerMatcherDispatcher.matches(annotation, message, isSelfAt));
 
             if (allMatch) {
-                matchedRegister = register;
-                break;
+                candidates.add(register);
             }
         }
 
-        if (matchedRegister != null) {
-            invokeMethod(matchedRegister, message);
+        // 按优先级排序（从小到大）
+        candidates.sort(Comparator.comparingInt(RegisteredHandler::getPriority));
+
+        if (!candidates.isEmpty()) {
+            invokeMethod(candidates.get(0), message); // 调用优先级最高的
             return;
         }
 

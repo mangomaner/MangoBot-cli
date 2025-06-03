@@ -1,6 +1,7 @@
 package org.mango.mangobot.plugin;
 
 import jakarta.annotation.Resource;
+import org.mango.mangobot.annotation.PluginPriority;
 import org.mango.mangobot.annotation.QQ.method.AtMessage;
 import org.mango.mangobot.annotation.QQ.method.AtTextImageReplyMessage;
 import org.mango.mangobot.annotation.QQ.method.PokeMessage;
@@ -61,7 +62,6 @@ public class PluginManager {
                         plugins.add(plugin);
                         classLoaders.put(clazz.getName(), loader);
 
-                        // 注册消息处理方法
                         registerHandlers(plugin);
 
                         System.out.println("已加载插件: " + clazz.getName());
@@ -76,7 +76,11 @@ public class PluginManager {
     private void registerHandlers(Object pluginInstance) {
         for (Method method : pluginInstance.getClass().getDeclaredMethods()) {
             if (isMessageHandlerMethod(method)) {
-                messageHandler.putIfAbsent(method, new RegisteredHandler(method, pluginInstance, List.of(method.getAnnotations())));
+                int priority = 100;
+                if(method.isAnnotationPresent(PluginPriority.class)){
+                    priority = method.getAnnotation(PluginPriority.class).value();
+                }
+                messageHandler.putIfAbsent(method, new RegisteredHandler(method, pluginInstance, List.of(method.getAnnotations()), priority));
             }
         }
     }

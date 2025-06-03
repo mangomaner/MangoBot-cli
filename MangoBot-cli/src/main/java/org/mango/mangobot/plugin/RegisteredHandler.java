@@ -11,4 +11,5 @@ public class RegisteredHandler {
     private final Method method;
     private final Object handlerInstance;
     private final List<Annotation> annotations;
+    private final int priority;
 }
