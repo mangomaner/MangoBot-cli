@@ -9,12 +9,12 @@ import org.mango.mangobot.plugin.PluginContext;
 public class ExamplePlugin implements Plugin {
     @Override
     public void onEnable(PluginContext context) {
-        System.out.println("✅ ExamplePlugin 已启用");
+        System.out.println("ExamplePlugin 已启用");
     }
 
     @Override
     public void onDisable() {
-        System.out.println("❌ ExamplePlugin 已禁用");
+        System.out.println("ExamplePlugin 已禁用");
     }
 
     @TextMessage

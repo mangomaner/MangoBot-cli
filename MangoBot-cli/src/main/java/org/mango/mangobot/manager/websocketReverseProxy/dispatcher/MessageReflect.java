@@ -12,6 +12,7 @@ import org.mango.mangobot.messageHandler.GroupMessageHandler;
 import org.mango.mangobot.messageHandler.messageStore.ChatMessageStoreService;
 import org.mango.mangobot.model.QQ.QQMessage;
 import org.mango.mangobot.model.QQ.ReceiveMessageSegment;
+import org.mango.mangobot.plugin.RegisteredHandler;
 import org.mango.mangobot.utils.MethodParameter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -43,35 +44,17 @@ public class MessageReflect {
     @Resource
     private ChatMessageStoreService chatMessageStoreService;
     /**
-     * 参数解析器列表，Spring 会自动注入所有实现了 ArgumentResolver 接口的 Bean
+     * 参数解析器列表，Spring 会自动注入所有实现了 ArgumentResolver 接口的 Bean，注意要用Autowired类型匹配，不可用Resource
      */
     @Autowired
     private List<ParameterArgumentResolver> parameterArgumentResolvers;
     /**
      * 保存注解类型与其对应方法的映射关系，便于后续消息分发
      */
-    private final Map<Method, List<Annotation>> messageHandlers = new HashMap<>();
+    @Resource
+    private Map<Method, RegisteredHandler> messageHandlers;
     @Resource
     private ObjectMapper objectMapper;
-    /**
-     * 初始化方法，在 Spring 完成依赖注入后执行。
-     * 扫描 GroupMessageHandler 类中的所有方法，并注册带有指定注解的方法。
-     */
-    @PostConstruct
-    public void init() {
-        Method[] methods = GroupMessageHandler.class.getDeclaredMethods();
-        for (Method method : methods) {
-            List<Annotation> annotations = Arrays.stream(method.getAnnotations())
-                    .filter(annotation -> annotation.annotationType().isAnnotationPresent(QQMessageHandlerType.class))
-                    .collect(Collectors.toList());
-
-            if (!annotations.isEmpty()) {
-                messageHandlers.put(method, annotations);
-                log.info("注册方法: {} 带注解: {}", method.getName(), annotations.stream().map(Annotation::annotationType).map(Class::getSimpleName).collect(Collectors.joining(", ")));
-            }
-        }
-        log.info("成功注册 {} 个带注解的消息处理方法", messageHandlers.size());
-    }
 
     /**
      * 处理普通消息事件，将其保存到 MongoDB 并转发给对应的处理器方法
@@ -176,14 +159,14 @@ public class MessageReflect {
      * 第二阶段：仅当第一阶段无匹配时，尝试匹配 @AtTextImageReplyMessage
      */
     private void invokeHandlers(QQMessage message, boolean isSelfAt) {
-        Method matchedMethod = null;
+        RegisteredHandler matchedRegister = null;
 
         Set<String> segmentTypes = AnnotationUtils.getSegmentTypes(message);
 
         // ===== 第一阶段：匹配普通注解 =====
-        for (Map.Entry<Method, List<Annotation>> entry : messageHandlers.entrySet()) {
-            Method method = entry.getKey();
-            List<Annotation> annotations = entry.getValue();
+        for (Map.Entry<Method, RegisteredHandler> entry : messageHandlers.entrySet()) {
+            RegisteredHandler register = entry.getValue();
+            List<Annotation> annotations = entry.getValue().getAnnotations();
 
             if (annotations.isEmpty()) continue;
 
@@ -201,20 +184,20 @@ public class MessageReflect {
                     .allMatch(annotation -> handlerMatcherDispatcher.matches(annotation, message, isSelfAt));
 
             if (allMatch) {
-                matchedMethod = method;
+                matchedRegister = register;
                 break;
             }
         }
 
-        if (matchedMethod != null) {
-            invokeMethod(matchedMethod, message);
+        if (matchedRegister != null) {
+            invokeMethod(matchedRegister, message);
             return;
         }
 
         // ===== 第二阶段：尝试匹配 @AtTextImageReplyMessage =====
-        for (Map.Entry<Method, List<Annotation>> entry : messageHandlers.entrySet()) {
-            Method method = entry.getKey();
-            List<Annotation> annotations = entry.getValue();
+        for (Map.Entry<Method, RegisteredHandler> entry : messageHandlers.entrySet()) {
+            RegisteredHandler register = entry.getValue();
+            List<Annotation> annotations = entry.getValue().getAnnotations();
 
             if (annotations.isEmpty()) continue;
 
@@ -222,12 +205,12 @@ public class MessageReflect {
 
             if (!AnnotationUtils.validateSegmentsForAtTextImageReply(message.getMessage())) continue;
 
-            matchedMethod = method;
+            matchedRegister = register;
             break;
         }
 
-        if (matchedMethod != null) {
-            invokeMethod(matchedMethod, message);
+        if (matchedRegister != null) {
+            invokeMethod(matchedRegister, message);
         } else {
             log.debug("没有找到匹配的消息处理器");
         }
@@ -236,13 +219,13 @@ public class MessageReflect {
     /**
      * 封装方法调用逻辑
      */
-    private void invokeMethod(Method method, QQMessage message) {
-        Object[] args = resolveParameters(method, message);
+    private void invokeMethod(RegisteredHandler register, QQMessage message) {
+        Object[] args = resolveParameters(register.getMethod(), message);
         try {
-            method.setAccessible(true);
-            method.invoke(groupMessageHandler, args);
+            register.getMethod().setAccessible(true);
+            register.getMethod().invoke(register.getHandlerInstance(), args);
         } catch (Exception e) {
-            log.error("调用方法失败: {}", method.getName(), e);
+            log.error("调用方法失败: {}", register.getMethod().getName(), e);
         }
     }
 

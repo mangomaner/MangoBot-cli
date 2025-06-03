@@ -8,6 +8,10 @@ import org.mango.mangobot.annotation.QQ.parameter.*;
 import org.springframework.stereotype.Component;
 
 /**
+ * 该方法已弃用！改为插件开发！！！
+ */
+
+/**
  *
  * 相关注解代码在 org/mangobot/annotation/QQ 定义，请勿混淆 方法注解 和 参数注解
  *  规则：

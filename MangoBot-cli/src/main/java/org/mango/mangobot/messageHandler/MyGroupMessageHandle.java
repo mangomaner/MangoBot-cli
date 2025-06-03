@@ -8,8 +8,6 @@ import dev.langchain4j.model.chat.response.ChatResponse;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
-import org.mango.mangobot.annotation.QQ.method.TextMessage;
-import org.mango.mangobot.plugin.MessageDispatcher;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -17,9 +15,6 @@ import org.springframework.stereotype.Component;
 public class MyGroupMessageHandle implements GroupMessageHandler {
     @Resource
     QwenChatModel qwenChatModel;
-
-    @Resource
-    private MessageDispatcher messageDispatcher;
 
     @PostConstruct
     public void init() {
@@ -33,7 +28,6 @@ public class MyGroupMessageHandle implements GroupMessageHandler {
     @Override
     public void handleTextMessage(String fromUser, String content) {
         System.out.println("主处理器 - 收到文本消息：" + content);
-        messageDispatcher.dispatchMessage(TextMessage.class, fromUser, content);
     }
 
     @Override

@@ -20,7 +20,7 @@ public class PluginManager {
     @Resource
     private ApplicationContext applicationContext;
     @Resource
-    private MessageDispatcher messageDispatcher;
+    private Map<Method, RegisteredHandler> messageHandler;
     private final List<Plugin> plugins = new ArrayList<>();
     private final Map<String, PluginClassLoader> classLoaders = new HashMap<>();
     private final String PLUGIN_DIR = "plugins";
@@ -76,7 +76,7 @@ public class PluginManager {
     private void registerHandlers(Object pluginInstance) {
         for (Method method : pluginInstance.getClass().getDeclaredMethods()) {
             if (isMessageHandlerMethod(method)) {
-                messageDispatcher.registerHandlerMethod(pluginInstance, method);
+                messageHandler.putIfAbsent(method, new RegisteredHandler(method, pluginInstance, List.of(method.getAnnotations())));
             }
         }
     }
