@@ -1,11 +1,9 @@
 package org.mango.mangobot.plugin;
 
 import jakarta.annotation.Resource;
+import lombok.extern.slf4j.Slf4j;
 import org.mango.mangobot.annotation.PluginPriority;
-import org.mango.mangobot.annotation.QQ.method.AtMessage;
-import org.mango.mangobot.annotation.QQ.method.AtTextImageReplyMessage;
-import org.mango.mangobot.annotation.QQ.method.PokeMessage;
-import org.mango.mangobot.annotation.QQ.method.TextMessage;
+import org.mango.mangobot.annotation.QQ.method.*;
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
 
@@ -17,6 +15,7 @@ import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
 @Component
+@Slf4j
 public class PluginManager {
     @Resource
     private ApplicationContext applicationContext;
@@ -53,18 +52,26 @@ public class PluginManager {
                             .replace("/", ".")
                             .replace(".class", "");
 
-                    Class<?> clazz = loader.loadClass(className);
+                    // 跳过 module-info.class 和其他非法类名
+                    if (className.contains("module-info")) {
+                        System.out.println("跳过模块信息类: " + className);
+                        continue;
+                    }
+                    try{
+                        Class<?> clazz = loader.loadClass(className);
+                        if (Plugin.class.isAssignableFrom(clazz)) {
+                            Plugin plugin = (Plugin) clazz.getDeclaredConstructor().newInstance();
+                            PluginContext context = new PluginContext(applicationContext);
+                            plugin.onEnable(context);
+                            plugins.add(plugin);
+                            classLoaders.put(clazz.getName(), loader);
 
-                    if (Plugin.class.isAssignableFrom(clazz)) {
-                        Plugin plugin = (Plugin) clazz.getDeclaredConstructor().newInstance();
-                        PluginContext context = new PluginContext(applicationContext);
-                        plugin.onEnable(context);
-                        plugins.add(plugin);
-                        classLoaders.put(clazz.getName(), loader);
+                            registerHandlers(plugin);
 
-                        registerHandlers(plugin);
-
-                        System.out.println("已加载插件: " + clazz.getName());
+                            System.out.println("已加载插件: " + clazz.getName());
+                        }
+                    } catch (Exception e){
+                        log.warn(e.toString());
                     }
                 }
             }
@@ -89,6 +96,9 @@ public class PluginManager {
         return method.isAnnotationPresent(TextMessage.class)
                 || method.isAnnotationPresent(AtMessage.class)
                 || method.isAnnotationPresent(PokeMessage.class)
+                || method.isAnnotationPresent(AudioMessage.class)
+                || method.isAnnotationPresent(ImageMessage.class)
+                || method.isAnnotationPresent(ReplyMessage.class)
                 || method.isAnnotationPresent(AtTextImageReplyMessage.class);
     }
 

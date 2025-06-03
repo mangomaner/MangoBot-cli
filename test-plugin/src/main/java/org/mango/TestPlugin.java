@@ -1,4 +1,4 @@
-package org.example;
+package org.mango;
 
 import org.mango.mangobot.annotation.QQ.method.TextMessage;
 import org.mango.mangobot.annotation.QQ.parameter.Content;

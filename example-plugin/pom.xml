@@ -15,11 +15,47 @@
     </properties>
 
     <dependencies>
+        <!-- 主程序 mangoBot，仅用于编译 -->
         <dependency>
             <groupId>org.mango</groupId>
             <artifactId>mangoBot</artifactId>
             <version>0.0.1-SNAPSHOT</version>
+            <!-- 设置为 provided 表示运行时由主程序提供 -->
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>redis.clients</groupId>
+            <artifactId>jedis</artifactId>
+            <version>5.2.0</version>
         </dependency>
     </dependencies>
 
+    <build>
+        <plugins>
+            <!-- 使用 maven-shade-plugin 打包 Fat Jar -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.5.0</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <!-- 主配置项 -->
+                            <createDependencyReducedPom>true</createDependencyReducedPom>
+                            <!-- Manifest 配置 -->
+                            <transformers>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                    <mainClass>org.mango.plugin.MainPlugin</mainClass>
+                                </transformer>
+                            </transformers>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
 </project>

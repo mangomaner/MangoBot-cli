@@ -1,4 +1,4 @@
-package org.example.mangobot;
+package org.mango.mangobot;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;

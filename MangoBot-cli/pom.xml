@@ -89,7 +89,11 @@
             <artifactId>langchain4j</artifactId>
             <version>1.0.0-beta3</version>
         </dependency>
-
+        <dependency>
+            <groupId>cglib</groupId>
+            <artifactId>cglib</artifactId>
+            <version>3.3.0</version>
+        </dependency>
     </dependencies>
 
 </project>
