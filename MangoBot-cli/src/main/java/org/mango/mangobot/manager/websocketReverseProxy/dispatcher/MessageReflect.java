@@ -83,7 +83,7 @@ public class MessageReflect {
                         .filter(a -> a.annotationType().isAnnotationPresent(QQMessageHandlerType.class))
                         .map(a -> handlerMatcherDispatcher.getHandlerMatcher(a).getSupportMessageType().getValue())
                         .collect(Collectors.toSet());
-                messageHandler.putIfAbsent(method, new RegisteredHandler(method, groupMessageHandler.getClass(), messageAnnotations, priority, segmentTypes));
+                messageHandler.putIfAbsent(method, new RegisteredHandler(method, groupMessageHandler, messageAnnotations, priority, segmentTypes));
             }
         }
 
