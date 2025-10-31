@@ -1,7 +1,7 @@
 package org.mango.mangobot.manager.websocketReverseProxy.dispatcher.impl.parameter;
 
 import org.mango.mangobot.annotation.QQ.parameter.TargetId;
-import org.mango.mangobot.manager.websocketReverseProxy.dispatcher.ParameterArgumentResolver;
+import org.mango.mangobot.manager.websocketReverseProxy.dispatcher.impl.ParameterArgumentResolver;
 import org.mango.mangobot.model.QQ.QQMessage;
 import org.mango.mangobot.model.QQ.ReceiveMessageSegment;
 import org.mango.mangobot.utils.MethodParameter;
@@ -26,10 +26,10 @@ public class TargetIdParameterArgumentResolver implements ParameterArgumentResol
             StringBuilder sb = new StringBuilder();
             for (ReceiveMessageSegment segment : segments) {
                 if ("at".equalsIgnoreCase(segment.getType())) {
-                    sb.append(segment.getData().getQq());
+                    sb.append(segment.getData().getQq() + ",");
                 }
             }
-            return sb.toString();
+            return sb.length() > 0 ? sb.toString().substring(0, sb.length() - 1) : sb.toString();
         }
     }
 }

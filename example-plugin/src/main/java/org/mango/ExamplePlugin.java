@@ -1,62 +1,91 @@
 package org.mango;
 
 import dev.langchain4j.community.model.dashscope.QwenChatModel;
-import dev.langchain4j.community.model.dashscope.QwenChatRequestParameters;
-import dev.langchain4j.data.message.UserMessage;
-import dev.langchain4j.model.chat.request.ChatRequest;
-import dev.langchain4j.model.chat.response.ChatResponse;
-import org.mango.mangobot.annotation.PluginPriority;
+import org.mango.manager.MessageCacheManager;
+import org.mango.mangobot.annotation.QQ.method.DefaultMessage;
+import org.mango.mangobot.annotation.QQ.method.ImageMessage;
+import org.mango.mangobot.annotation.QQ.method.PokeMessage;
 import org.mango.mangobot.annotation.QQ.method.TextMessage;
-import org.mango.mangobot.annotation.QQ.parameter.Content;
-import org.mango.mangobot.annotation.QQ.parameter.SenderId;
+import org.mango.mangobot.model.dto.handler.ChatMessageDTO;
 import org.mango.mangobot.plugin.Plugin;
 import org.mango.mangobot.plugin.PluginContext;
-import redis.clients.jedis.Jedis;
+import org.mango.model.ChatMessage;
+import org.mango.service.ChatMessageService;
+import org.springframework.beans.BeanUtils;
+import redis.clients.jedis.JedisPool;
+
+import java.util.List;
+import java.util.logging.Logger;
 
 public class ExamplePlugin implements Plugin {
 
-    private QwenChatModel qwenChatModel;
+    private static final Logger logger = Logger.getLogger(ExamplePlugin.class.getName());
 
-    // 必须要有这个构造函数
-    public ExamplePlugin() { }
+    private QwenChatModel qwenChatModel;
+    private JedisPool jedisPool; // 可配置更好;
+    private ChatMessageService chatMessageService;
+    private MessageCacheManager messageCacheManager = new MessageCacheManager(2); // 缓存最近10条消息
+
+    public ExamplePlugin() {
+        this.chatMessageService = new ChatMessageService(); // 初始化 Service
+    }
+
     @Override
     public void onEnable(PluginContext context) {
-        qwenChatModel = (QwenChatModel)context.getBean("qwenChatModel");
-
-
-        Jedis jedis = new Jedis("http://localhost:6379");
-        System.out.println("服务器连接成功");
-        //直接用set方法存入  get方法读取
-        //设置 redis 字符串数据
-        jedis.set("botTest", "Hello World!");
-        // 获取存储的数据并输出
-        System.out.println("redis 存储的字符串为: "+ jedis.get("botTest"));
-
-
-        System.out.println("ExamplePlugin 已启用");
+        this.qwenChatModel = (QwenChatModel) context.getBean("qwenChatModel");
+        logger.info("ExamplePlugin 已启用");
     }
 
     @Override
     public void onDisable() {
-        System.out.println("ExamplePlugin 已禁用");
+        logger.info("ExamplePlugin 已禁用");
+        if (jedisPool != null) {
+            jedisPool.close();
+        }
     }
 
+//    @ImageMessage
+//    public void handleImageMessage(ChatMessageDTO chatMessageDTO){
+//        ChatMessage chatMessage = new ChatMessage();
+//        BeanUtils.copyProperties(chatMessageDTO, chatMessage);
+//        logger.info("[ExamplePlugin] 收到图片消息");
+//
+//        chatMessageService.saveMessage(chatMessage);
+//    }
+
+    @PokeMessage
+    public void handlePokeMessage(ChatMessageDTO chatMessageDTO){
+        System.out.println("戳一戳");
+    }
+
+    @DefaultMessage
+    public void handleCombineMessage(ChatMessageDTO chatMessageDTO){
+        ChatMessage chatMessage = new ChatMessage();
+        BeanUtils.copyProperties(chatMessageDTO, chatMessage);
+        logger.info("[ExamplePlugin] 收到消息：" + chatMessage.getMessage()
+                + " from: " + chatMessage.getUserId()
+                + " target:" + chatMessage.getTargetId());
+
+        boolean isDuplicate = messageCacheManager.isDuplicateMessage(chatMessage);
+        if(isDuplicate)
+            System.out.println("重复消息: " + chatMessageDTO.getMessage() + " " + chatMessage.getImageUrl());
+
+        // 调用方法查找高频回复消息（比如 ≥ 2 次）
+        List<ChatMessage> replies = chatMessageService.getFrequentReplies(chatMessage, 2);
+        if (!replies.isEmpty()) {
+            System.out.println("【高频回复消息】以下消息被多次回复：");
+            for (ChatMessage msg : replies) {
+                System.out.println(" - " + msg.getMessage() + " | " + msg.getFile());
+            }
+        }
+        chatMessageService.saveMessage(chatMessage);
+    }
     @TextMessage
-    @PluginPriority(1)
-    public void handleTextMessage(@SenderId String fromUser, @Content String content) {
-        System.out.println("[ExamplePlugin] 收到文本消息：" + content + " from: " + fromUser);
+    public void handleTextMessage(ChatMessageDTO chatMessageDTO){
     }
+    @TextMessage
+    @ImageMessage
+    public void handleTextImageMessage(ChatMessage chatMessage){
 
-    private String chatWithModel(String question) {
-        ChatRequest request = ChatRequest.builder()
-                .messages(UserMessage.from(question))
-                .parameters(QwenChatRequestParameters.builder()
-                        .temperature(0.5)
-                        .modelName("qwen-turbo") // 设置模型名称
-                        .enableSearch(false)    // 是否联网搜索
-                        .build())
-                .build();
-        ChatResponse chatResponse = qwenChatModel.chat(request);
-        return chatResponse.aiMessage().text();
     }
 }

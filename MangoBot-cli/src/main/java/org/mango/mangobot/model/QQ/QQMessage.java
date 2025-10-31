@@ -14,7 +14,7 @@ public class QQMessage {
     private String self_id;
     private String user_id;
     private Long time;
-    private Long message_id;
+    private Integer message_id;
     private String message_type;
     private String notice_type;
     private Sender sender;

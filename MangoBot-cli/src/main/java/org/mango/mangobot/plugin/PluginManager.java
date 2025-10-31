@@ -3,16 +3,20 @@ package org.mango.mangobot.plugin;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.mango.mangobot.annotation.PluginPriority;
+import org.mango.mangobot.annotation.QQ.QQMessageHandlerType;
 import org.mango.mangobot.annotation.QQ.method.*;
+import org.mango.mangobot.manager.websocketReverseProxy.dispatcher.HandlerMatcherDispatcher;
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
 
 import java.io.File;
 import java.io.IOException;
+import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
 import java.util.*;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
+import java.util.stream.Collectors;
 
 @Component
 @Slf4j
@@ -24,6 +28,8 @@ public class PluginManager {
     private final List<Plugin> plugins = new ArrayList<>();
     private final Map<String, PluginClassLoader> classLoaders = new HashMap<>();
     private final String PLUGIN_DIR = "plugins";
+    @Resource
+    HandlerMatcherDispatcher handlerMatcherDispatcher;
 
     public void loadPlugins() {
         File dir = new File(PLUGIN_DIR);
@@ -37,6 +43,8 @@ public class PluginManager {
                 loadPlugin(file);
             }
         }
+        // 在 PluginManager.loadPlugins() 末尾
+        applicationContext.publishEvent(new PluginLoadEvent(this));
     }
 
     private void loadPlugin(File jarFile) {
@@ -52,13 +60,14 @@ public class PluginManager {
                             .replace("/", ".")
                             .replace(".class", "");
 
-                    // 跳过 module-info.class 和其他非法类名
-                    if (className.contains("module-info")) {
-                        System.out.println("跳过模块信息类: " + className);
+                    if (entry.getName().equals("module-info.class") ||
+                            entry.getName().startsWith("META-INF/versions/") && entry.getName().endsWith("/module-info.class")) {
+                        log.info("跳过模块描述符: " + entry.getName());
                         continue;
                     }
                     try{
                         Class<?> clazz = loader.loadClass(className);
+                        // System.out.println("classLoader: " + clazz.getClassLoader() + " ; " + "class: " + clazz);
                         if (Plugin.class.isAssignableFrom(clazz)) {
                             Plugin plugin = (Plugin) clazz.getDeclaredConstructor().newInstance();
                             PluginContext context = new PluginContext(applicationContext);
@@ -68,7 +77,7 @@ public class PluginManager {
 
                             registerHandlers(plugin);
 
-                            System.out.println("已加载插件: " + clazz.getName());
+                            log.info("已加载插件: " + clazz.getName());
                         }
                     } catch (Exception e){
                         log.warn(e.toString());
@@ -87,7 +96,13 @@ public class PluginManager {
                 if(method.isAnnotationPresent(PluginPriority.class)){
                     priority = method.getAnnotation(PluginPriority.class).value();
                 }
-                messageHandler.putIfAbsent(method, new RegisteredHandler(method, pluginInstance, List.of(method.getAnnotations()), priority));
+                List<Annotation> messageAnnotations = List.of(method.getAnnotations());
+                // 获取当前方法所有支持的消息类型
+                Set<String> segmentTypes = messageAnnotations.stream()
+                        .filter(a -> a.annotationType().isAnnotationPresent(QQMessageHandlerType.class))
+                        .map(a -> handlerMatcherDispatcher.getHandlerMatcher(a).getSupportMessageType().getValue())
+                        .collect(Collectors.toSet());
+                messageHandler.putIfAbsent(method, new RegisteredHandler(method, pluginInstance, messageAnnotations, priority, segmentTypes));
             }
         }
     }
@@ -99,7 +114,7 @@ public class PluginManager {
                 || method.isAnnotationPresent(AudioMessage.class)
                 || method.isAnnotationPresent(ImageMessage.class)
                 || method.isAnnotationPresent(ReplyMessage.class)
-                || method.isAnnotationPresent(AtTextImageReplyMessage.class);
+                || method.isAnnotationPresent(DefaultMessage.class);
     }
 
     public void unloadPlugins() {

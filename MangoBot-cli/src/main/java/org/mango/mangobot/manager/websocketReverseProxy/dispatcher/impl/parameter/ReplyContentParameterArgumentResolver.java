@@ -4,7 +4,7 @@ package org.mango.mangobot.manager.websocketReverseProxy.dispatcher.impl.paramet
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.Resource;
 import org.mango.mangobot.annotation.QQ.parameter.ReplyContent;
-import org.mango.mangobot.manager.websocketReverseProxy.dispatcher.ParameterArgumentResolver;
+import org.mango.mangobot.manager.websocketReverseProxy.dispatcher.impl.ParameterArgumentResolver;
 import org.mango.mangobot.messageHandler.messageStore.collection.QQMessageCollection;
 import org.mango.mangobot.model.QQ.QQMessage;
 import org.mango.mangobot.model.QQ.ReceiveMessageSegment;

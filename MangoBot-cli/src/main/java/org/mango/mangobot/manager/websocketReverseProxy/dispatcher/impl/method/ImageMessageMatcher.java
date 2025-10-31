@@ -1,8 +1,9 @@
 package org.mango.mangobot.manager.websocketReverseProxy.dispatcher.impl.method;
 
 import org.mango.mangobot.annotation.QQ.method.ImageMessage;
-import org.mango.mangobot.manager.websocketReverseProxy.dispatcher.HandlerMatcher;
-import org.mango.mangobot.manager.websocketReverseProxy.dispatcher.impl.AnnotationUtils;
+import org.mango.mangobot.manager.websocketReverseProxy.dispatcher.impl.HandlerMatcher;
+import org.mango.mangobot.manager.websocketReverseProxy.dispatcher.AnnotationUtils;
+import org.mango.mangobot.manager.websocketReverseProxy.dispatcher.impl.MessageTypeEnum;
 import org.mango.mangobot.model.QQ.QQMessage;
 import org.springframework.stereotype.Component;
 
@@ -22,5 +23,9 @@ public class ImageMessageMatcher implements HandlerMatcher {
     @Override
     public boolean matches(QQMessage message, Annotation annotation, boolean isSelfAt) {
         return AnnotationUtils.containsSegmentOfType(message, "image");
+    }
+    @Override
+    public MessageTypeEnum getSupportMessageType() {
+        return MessageTypeEnum.IMAGE;
     }
 }

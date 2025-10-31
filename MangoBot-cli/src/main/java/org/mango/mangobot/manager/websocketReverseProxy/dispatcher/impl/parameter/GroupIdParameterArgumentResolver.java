@@ -1,7 +1,7 @@
 package org.mango.mangobot.manager.websocketReverseProxy.dispatcher.impl.parameter;
 
 import org.mango.mangobot.annotation.QQ.parameter.GroupId;
-import org.mango.mangobot.manager.websocketReverseProxy.dispatcher.ParameterArgumentResolver;
+import org.mango.mangobot.manager.websocketReverseProxy.dispatcher.impl.ParameterArgumentResolver;
 import org.mango.mangobot.model.QQ.QQMessage;
 import org.mango.mangobot.utils.MethodParameter;
 import org.springframework.stereotype.Component;

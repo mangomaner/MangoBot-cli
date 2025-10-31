@@ -79,10 +79,10 @@ public class BotMessageHandler extends TextWebSocketHandler implements Handshake
             if(!messageMap.containsKey("group_id")){
                 return;
             }
-            // 开启后仅接收groupSet中存储的群号的消息
-            if(!groupSet.contains(messageMap.get("group_id").toString())){
-                return;
-            }
+//            // 开启后仅接收groupSet中存储的群号的消息
+//            if(!groupSet.contains(messageMap.get("group_id").toString())){
+//                return;
+//            }
         }
 
         // 提取 post_type

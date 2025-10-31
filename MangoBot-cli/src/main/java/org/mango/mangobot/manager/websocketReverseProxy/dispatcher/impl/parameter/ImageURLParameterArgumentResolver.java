@@ -1,7 +1,7 @@
 package org.mango.mangobot.manager.websocketReverseProxy.dispatcher.impl.parameter;
 
 import org.mango.mangobot.annotation.QQ.parameter.ImageURL;
-import org.mango.mangobot.manager.websocketReverseProxy.dispatcher.ParameterArgumentResolver;
+import org.mango.mangobot.manager.websocketReverseProxy.dispatcher.impl.ParameterArgumentResolver;
 import org.mango.mangobot.model.QQ.QQMessage;
 import org.mango.mangobot.model.QQ.ReceiveMessageSegment;
 import org.mango.mangobot.utils.MethodParameter;
@@ -21,6 +21,7 @@ public class ImageURLParameterArgumentResolver implements ParameterArgumentResol
     public Object resolveArgument(MethodParameter parameter, QQMessage message) {
         List<ReceiveMessageSegment> segments = message.getMessage();
         StringBuilder sb = new StringBuilder();
+        if(segments == null) return "";
         for (ReceiveMessageSegment segment : segments) {
             if ("image".equalsIgnoreCase(segment.getType())) {
                 sb.append(segment.getData().getUrl());

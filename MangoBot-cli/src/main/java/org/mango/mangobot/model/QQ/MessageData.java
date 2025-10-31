@@ -12,9 +12,11 @@ public class MessageData {
     private String id;
     private String data;
     private Integer subType;
+    private Integer sub_type;
     private String file_size;
     private String path; // 添加这一行
     private String file_id;
+    private String content;
 
     private String summary;
     private String emoji_id;
