@@ -2,8 +2,12 @@ package org.mango.mangobot.plugin;
 
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.mango.mangobot.annotation.MangoBotHandler;
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
+
+import org.mango.mangobot.annotation.MangoBotEventListener;
+import org.mango.mangobot.manager.event.MangoEventPublisher;
 
 import java.io.File;
 import java.io.IOException;
@@ -15,6 +19,9 @@ import java.util.jar.JarFile;
 @Component
 @Slf4j
 public class PluginManager {
+    @Resource
+    private MangoEventPublisher eventPublisher;
+
     @Resource
     private ApplicationContext applicationContext;
     private final List<Plugin> plugins = new ArrayList<>();
@@ -33,8 +40,6 @@ public class PluginManager {
                 loadPlugin(file);
             }
         }
-        // 在 PluginManager.loadPlugins() 末尾
-        applicationContext.publishEvent(new PluginLoadEvent(this));
     }
 
     private void loadPlugin(File jarFile) {
@@ -56,8 +61,9 @@ public class PluginManager {
                         continue;
                     }
                     try{
+                        // 加载类的元信息
                         Class<?> clazz = loader.loadClass(className);
-                        // System.out.println("classLoader: " + clazz.getClassLoader() + " ; " + "class: " + clazz);
+                        // 若遇到继承了插件接口/标记了@MangoBotHandler的类，则直接实例化
                         if (Plugin.class.isAssignableFrom(clazz)) {
                             Plugin plugin = (Plugin) clazz.getDeclaredConstructor().newInstance();
                             PluginContext context = new PluginContext(applicationContext);
@@ -65,9 +71,12 @@ public class PluginManager {
                             plugins.add(plugin);
                             classLoaders.put(clazz.getName(), loader);
 
-                            registerHandlers(plugin);
+                            // registerHandlers(plugin);
 
                             log.info("已加载插件: " + clazz.getName());
+                        }
+                        if (clazz.isAnnotationPresent(MangoBotHandler.class)){
+                            registerHandlers(clazz.getDeclaredConstructor().newInstance());
                         }
                     } catch (Exception e){
                         log.warn(e.toString());
@@ -79,12 +88,14 @@ public class PluginManager {
         }
     }
 
-    private void registerHandlers(Object pluginInstance) {
-
-    }
-
-    private boolean isMessageHandlerMethod(Method method) {
-        return false;
+    private void registerHandlers(Object instance) {
+        Method[] methods = instance.getClass().getDeclaredMethods();
+        for (Method method : methods) {
+            if (method.isAnnotationPresent(MangoBotEventListener.class)) {
+                eventPublisher.registerListener(method, instance);
+                // log.debug("注册插件 listener: {}", method.getName());
+            }
+        }
     }
 
     public void unloadPlugins() {
@@ -96,5 +107,8 @@ public class PluginManager {
             } catch (IOException ignored) {}
         });
         classLoaders.clear();
+        // Ideally we should also unregister listeners from MangoEventPublisher
+        // But currently MangoEventPublisher doesn't support unregistering.
+        // This might be a future improvement.
     }
 }

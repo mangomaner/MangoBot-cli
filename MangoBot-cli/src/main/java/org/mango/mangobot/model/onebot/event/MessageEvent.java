@@ -1,6 +1,8 @@
 package org.mango.mangobot.model.onebot.event;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.JsonDeserializer;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
@@ -12,7 +14,7 @@ import java.util.List;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @ToString(callSuper = true)
-@com.fasterxml.jackson.databind.annotation.JsonDeserialize(using = com.fasterxml.jackson.databind.JsonDeserializer.None.class)
+@JsonDeserialize(using = JsonDeserializer.None.class)
 public abstract class MessageEvent extends BaseEvent {
     @JsonProperty("message_type")
     private String messageType;
@@ -57,8 +59,8 @@ public abstract class MessageEvent extends BaseEvent {
         }
         StringBuilder sb = new StringBuilder();
         for (MessageSegment segment : message) {
-            if ("text".equals(segment.getType()) && segment instanceof TextSegment) {
-                sb.append(((TextSegment) segment).getText());
+            if ("text".equals(segment.getType()) && segment instanceof TextSegment textSegment) {
+                sb.append((textSegment).getText());
             }
         }
         return sb.toString();

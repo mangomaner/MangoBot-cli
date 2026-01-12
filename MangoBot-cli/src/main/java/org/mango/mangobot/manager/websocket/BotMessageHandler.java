@@ -1,10 +1,12 @@
 package org.mango.mangobot.manager.websocket;
 
 import lombok.extern.slf4j.Slf4j;
+import org.jetbrains.annotations.NotNull;
 import org.mango.mangobot.model.onebot.event.Event;
 import org.mango.mangobot.model.onebot.event.EventParser;
 import org.mango.mangobot.model.onebot.event.meta.HeartbeatEvent;
 import org.mango.mangobot.model.onebot.event.meta.LifecycleEvent;
+import org.mango.mangobot.manager.event.MangoEventPublisher;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.server.ServerHttpRequest;
 import org.springframework.http.server.ServerHttpResponse;
@@ -22,30 +24,29 @@ import java.util.Map;
 @Slf4j
 public class BotMessageHandler extends TextWebSocketHandler implements HandshakeInterceptor {
 
-    private final ApplicationEventPublisher eventPublisher;
+    private final MangoEventPublisher eventPublisher;
     private final BotConnectionManager connectionManager;
 
-    public BotMessageHandler(ApplicationEventPublisher eventPublisher, BotConnectionManager connectionManager) {
+    public BotMessageHandler(MangoEventPublisher eventPublisher, BotConnectionManager connectionManager) {
         this.eventPublisher = eventPublisher;
         this.connectionManager = connectionManager;
     }
 
     @Override
-    public void afterConnectionEstablished(WebSocketSession session) throws Exception {
+    public void afterConnectionEstablished(WebSocketSession session){
         log.info("LLOneBot 连接建立: {}", session.getId());
         connectionManager.registerSession(session);
     }
 
     @Override
-    protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
+    protected void handleTextMessage(@NotNull WebSocketSession session, TextMessage message){
         String payload = message.getPayload();
         log.debug("收到消息: {}", payload);
 
         try {
             Event event = EventParser.parse(payload);
 
-            if (event instanceof HeartbeatEvent) {
-                HeartbeatEvent heartbeat = (HeartbeatEvent) event;
+            if (event instanceof HeartbeatEvent heartbeat) {
                 connectionManager.updateHeartbeat(session.getId(), heartbeat.getInterval());
             }
             else if (event instanceof LifecycleEvent) {
@@ -54,7 +55,8 @@ public class BotMessageHandler extends TextWebSocketHandler implements Handshake
                 log.info("已连接QQ: {}", selfId);
             }
 
-            eventPublisher.publishEvent(event);
+            // Publish event for upper layers
+            eventPublisher.publish(event);
             
         } catch (Exception e) {
             log.error("解析消息失败: {}", payload, e);
@@ -62,19 +64,19 @@ public class BotMessageHandler extends TextWebSocketHandler implements Handshake
     }
 
     @Override
-    public void afterConnectionClosed(WebSocketSession session, CloseStatus status) throws Exception {
+    public void afterConnectionClosed(WebSocketSession session, @NotNull CloseStatus status){
         log.info("QQ连接断开: {}", session.getId());
         connectionManager.removeSession(session.getId());
     }
 
     @Override
-    public boolean beforeHandshake(ServerHttpRequest request, ServerHttpResponse response,
-                                   WebSocketHandler wsHandler, Map<String, Object> attributes) throws Exception {
+    public boolean beforeHandshake(@NotNull ServerHttpRequest request, @NotNull ServerHttpResponse response,
+                                   @NotNull WebSocketHandler wsHandler, @NotNull Map<String, Object> attributes){
         return true;
     }
 
     @Override
-    public void afterHandshake(ServerHttpRequest request, ServerHttpResponse response,
-                               WebSocketHandler wsHandler, Exception exception) {
+    public void afterHandshake(@NotNull ServerHttpRequest request, @NotNull ServerHttpResponse response,
+                               @NotNull WebSocketHandler wsHandler, Exception exception) {
     }
 }

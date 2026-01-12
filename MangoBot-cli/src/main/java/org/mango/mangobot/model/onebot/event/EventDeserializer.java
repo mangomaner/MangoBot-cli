@@ -25,7 +25,7 @@ public class EventDeserializer extends StdDeserializer<Event> {
     }
 
     @Override
-    public Event deserialize(JsonParser p, DeserializationContext ctxt) throws IOException, JsonProcessingException {
+    public Event deserialize(JsonParser p, DeserializationContext ctxt) throws IOException{
         ObjectMapper mapper = (ObjectMapper) p.getCodec();
         JsonNode node = mapper.readTree(p);
         
