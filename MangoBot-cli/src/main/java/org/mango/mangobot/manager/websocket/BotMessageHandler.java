@@ -41,20 +41,22 @@ public class BotMessageHandler extends TextWebSocketHandler implements Handshake
     @Override
     protected void handleTextMessage(@NotNull WebSocketSession session, TextMessage message){
         String payload = message.getPayload();
-        log.debug("收到消息: {}", payload);
 
         try {
             Event event = EventParser.parse(payload);
 
             if (event instanceof HeartbeatEvent heartbeat) {
                 connectionManager.updateHeartbeat(session.getId(), heartbeat.getInterval());
+                return;
             }
             else if (event instanceof LifecycleEvent) {
                 long selfId = event.getSelfId();
                 connectionManager.updateBotId(session.getId(), selfId);
                 log.info("已连接QQ: {}", selfId);
+                return;
             }
 
+            log.info("收到消息: {}", payload);
             // Publish event for upper layers
             eventPublisher.publish(event);
             

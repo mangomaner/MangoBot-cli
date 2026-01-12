@@ -1,6 +1,5 @@
 package org.mango;
 
-import dev.langchain4j.community.model.dashscope.QwenChatModel;
 import org.mango.mangobot.annotation.MangoBotEventListener;
 import org.mango.mangobot.annotation.MangoBotHandler;
 import org.mango.mangobot.annotation.PluginPriority;
@@ -15,15 +14,12 @@ public class ExamplePlugin implements Plugin {
 
     private static final Logger logger = Logger.getLogger(ExamplePlugin.class.getName());
 
-    private QwenChatModel qwenChatModel;
-
     public ExamplePlugin() {
 
     }
 
     @Override
     public void onEnable(PluginContext context) {
-        this.qwenChatModel = (QwenChatModel) context.getBean("qwenChatModel");
         logger.info("ExamplePlugin 已启用");
     }
 

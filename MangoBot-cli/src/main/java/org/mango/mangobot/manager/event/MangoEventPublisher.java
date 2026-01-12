@@ -14,6 +14,9 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 @Component
 @Slf4j
@@ -21,6 +24,7 @@ public class MangoEventPublisher {
 
     private final Map<Class<?>, List<ListenerMethod>> listenerCache = new ConcurrentHashMap<>();
     private final Map<Class<?>, Object> handlerInstances = new ConcurrentHashMap<>();
+    private ThreadPoolExecutor executor = new ThreadPoolExecutor(1, 10, 1000, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(), new ThreadPoolExecutor.CallerRunsPolicy());
 
     // 无参构造函数，用于 Spring 或手动实例化
     public MangoEventPublisher() {
@@ -63,7 +67,7 @@ public class MangoEventPublisher {
         
         // 按优先级排序监听器
         listenerCache.values().forEach(list -> Collections.sort(list));
-        log.info("MangoEventPublisher 初始化完成，从包 '{}' 中加载了 {} 种事件类型。", packageToScan, listenerCache.size());
+        log.info("主程序 MangoEventPublisher 初始化完成，从包 '{}' 中加载了 {} 种事件类型。", packageToScan, listenerCache.size());
     }
 
     /**
@@ -98,27 +102,28 @@ public class MangoEventPublisher {
         // 添加新监听器后重新排序
         Collections.sort(listenerCache.get(eventType));
 
-        log.debug("已注册监听器: {} 用于事件: {}", method.getName(), eventType.getSimpleName());
+        log.info("已注册监听器: {} 用于事件: {}", method.getName(), eventType.getSimpleName());
     }
 
     /**
-     * 发布事件
+     * 多线程发布事件
      * @param event
      */
     public void publish(Event event) {
-        List<ListenerMethod> listeners = getListenersForEvent(event.getClass());
-
-        for (ListenerMethod listener : listeners) {
-            try {
-                boolean result = (boolean) listener.method.invoke(listener.bean, event);
-                if (!result) {
-                    log.debug("监听器 {} 返回 false，停止传播。", listener.method.getName());
-                    break;
+        executor.execute(() -> {
+            List<ListenerMethod> listeners = getListenersForEvent(event.getClass());
+            for (ListenerMethod listener : listeners) {
+                try {
+                    boolean result = (boolean) listener.method.invoke(listener.bean, event);
+                    if (!result) {
+                        log.debug("监听器 {} 返回 false，停止传播。", listener.method.getName());
+                        break;
+                    }
+                } catch (Exception e) {
+                    log.error("执行监听器时出错: {}", listener.method.getName(), e);
                 }
-            } catch (Exception e) {
-                log.error("执行监听器时出错: {}", listener.method.getName(), e);
             }
-        }
+        });
     }
 
     /**

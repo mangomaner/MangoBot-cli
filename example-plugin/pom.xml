@@ -15,15 +15,15 @@
     </properties>
 
     <dependencies>
-        <!-- 主程序 mangoBot，仅用于编译 -->
+        <!-- 使用 system scope 引用本地 lib 目录下的 JAR -->
         <dependency>
             <groupId>org.mango</groupId>
             <artifactId>mangobot</artifactId>
             <version>0.0.1-SNAPSHOT</version>
-            <classifier>lib</classifier>
-            <!-- 设置为 provided 表示运行时由主程序提供 -->
-            <scope>provided</scope>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/mangobot-0.0.1-SNAPSHOT-lib.jar</systemPath>
         </dependency>
+
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
@@ -34,7 +34,7 @@
 
     <build>
         <plugins>
-            <!-- 使用 maven-shade-plugin 打包 Fat Jar -->
+            <!-- 打包插件（system 依赖默认不会被打包） -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>

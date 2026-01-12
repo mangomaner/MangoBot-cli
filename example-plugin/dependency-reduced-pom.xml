@@ -22,17 +22,17 @@
   </build>
   <dependencies>
     <dependency>
-      <groupId>org.mango</groupId>
-      <artifactId>mangobot</artifactId>
-      <version>0.0.1-SNAPSHOT</version>
-      <classifier>lib</classifier>
-      <scope>provided</scope>
-    </dependency>
-    <dependency>
       <groupId>org.projectlombok</groupId>
       <artifactId>lombok</artifactId>
       <version>1.18.30</version>
       <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.mango</groupId>
+      <artifactId>mangobot</artifactId>
+      <version>0.0.1-SNAPSHOT</version>
+      <scope>system</scope>
+      <systemPath>${project.basedir}/lib/mangobot-0.0.1-SNAPSHOT-lib.jar</systemPath>
     </dependency>
   </dependencies>
   <properties>
