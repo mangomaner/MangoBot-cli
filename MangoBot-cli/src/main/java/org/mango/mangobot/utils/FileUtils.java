@@ -1,45 +1,98 @@
 package org.mango.mangobot.utils;
 
-import java.io.BufferedWriter;
+import org.springframework.boot.system.ApplicationHome;
+
 import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 
 public class FileUtils {
 
-    public static File ensureDirectoryExists(String path) {
-        File dir = new File(path);
-        if (!dir.exists()) {
-            if (!dir.mkdirs()) {
-                throw new RuntimeException("Failed to create directory: " + path);
-            }
+    /**
+     * 获取基准目录：
+     * - JAR 运行：JAR 所在目录；
+     * - IDE 运行：user.dir（项目根目录）。
+     */
+    public static Path getBaseDirectory() {
+        ApplicationHome home = new ApplicationHome(FileUtils.class);
+        File source = home.getSource();
+
+        if (source.isFile() && source.getName().toLowerCase().endsWith(".jar")) {
+            return source.toPath().getParent(); // JAR 同级目录
+        } else {
+            // 开发模式：user.dir 的父目录
+            return Paths.get(System.getProperty("user.dir")).getParent();
         }
-        return dir;
     }
 
-    public static void writeToFile(String content, String filePath){
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(filePath, StandardCharsets.UTF_8))) {
-            writer.write(content);
-        } catch (IOException e) {
-            throw new RuntimeException(e);
+    public static File ensureDirectoryExists(String relativePath) {
+        if (relativePath == null || relativePath.isEmpty()) {
+            throw new IllegalArgumentException("relativePath must not be null or empty");
         }
-    }
-
-    // 获取jar包路径（防止打包后无法找到对应文件）
-    public String getJarPath() {
-        java.net.URL url = this.getClass().getProtectionDomain().getCodeSource().getLocation();
-        String jarPath = null;
+        Path dir = getBaseDirectory().resolve(relativePath);
         try {
-            jarPath = java.net.URLDecoder.decode(url.getFile(), "UTF-8");
-            if (jarPath.endsWith(".jar")) {
-                jarPath = new File(jarPath).getParentFile().getAbsolutePath();
-            } else {
-                jarPath = new File("").getAbsolutePath();
-            }
-        } catch (Exception e) {
-            throw new RuntimeException(e);
+            Files.createDirectories(dir);
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to ensure directory exists: " + dir.toAbsolutePath(), e);
         }
-        return jarPath;
+        return dir.toFile();
+    }
+
+    public static File ensureFileExists(String relativePath) {
+        if (relativePath == null || relativePath.isEmpty()) {
+            throw new IllegalArgumentException("relativePath must not be null or empty");
+        }
+        Path filePath = getBaseDirectory().resolve(relativePath);
+        try {
+            Path parent = filePath.getParent();
+            if (parent != null) {
+                Files.createDirectories(parent);
+            }
+            if (!Files.exists(filePath)) {
+                Files.createFile(filePath);
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to ensure file exists: " + filePath.toAbsolutePath(), e);
+        }
+        return filePath.toFile();
+    }
+
+    public static File ensureResourceAsFile(String resourcePath, String relativePath) {
+        if (resourcePath == null || resourcePath.isEmpty()) {
+            throw new IllegalArgumentException("resourcePath must not be null or empty");
+        }
+        if (relativePath == null || relativePath.isEmpty()) {
+            throw new IllegalArgumentException("relativePath must not be null or empty");
+        }
+
+        Path target = getBaseDirectory().resolve(relativePath);
+        if (Files.exists(target)) {
+            return target.toFile();
+        }
+
+        ClassLoader loader = Thread.currentThread().getContextClassLoader();
+        if (loader == null) {
+            loader = FileUtils.class.getClassLoader();
+        }
+
+        try (InputStream in = loader.getResourceAsStream(resourcePath)) {
+            if (in == null) {
+                throw new RuntimeException("Classpath resource not found: " + resourcePath);
+            }
+            Path parent = target.getParent();
+            if (parent != null) {
+                Files.createDirectories(parent);
+            }
+            Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
+            return target.toFile();
+        } catch (IOException e) {
+            throw new RuntimeException(
+                    "Failed to copy resource '" + resourcePath + "' to: " + target.toAbsolutePath(), e
+            );
+        }
     }
 }
