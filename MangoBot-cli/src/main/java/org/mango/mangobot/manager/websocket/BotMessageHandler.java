@@ -1,13 +1,11 @@
 package org.mango.mangobot.manager.websocket;
 
 import lombok.extern.slf4j.Slf4j;
-import org.jetbrains.annotations.NotNull;
+import org.mango.mangobot.manager.event.MangoEventPublisher;
 import org.mango.mangobot.model.onebot.event.Event;
 import org.mango.mangobot.model.onebot.event.EventParser;
 import org.mango.mangobot.model.onebot.event.meta.HeartbeatEvent;
 import org.mango.mangobot.model.onebot.event.meta.LifecycleEvent;
-import org.mango.mangobot.manager.event.MangoEventPublisher;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.server.ServerHttpRequest;
 import org.springframework.http.server.ServerHttpResponse;
 import org.springframework.stereotype.Component;
@@ -39,7 +37,7 @@ public class BotMessageHandler extends TextWebSocketHandler implements Handshake
     }
 
     @Override
-    protected void handleTextMessage(@NotNull WebSocketSession session, TextMessage message){
+    protected void handleTextMessage(WebSocketSession session, TextMessage message){
         String payload = message.getPayload();
 
         try {
@@ -66,19 +64,19 @@ public class BotMessageHandler extends TextWebSocketHandler implements Handshake
     }
 
     @Override
-    public void afterConnectionClosed(WebSocketSession session, @NotNull CloseStatus status){
+    public void afterConnectionClosed(WebSocketSession session, CloseStatus status){
         log.info("QQ连接断开: {}", session.getId());
         connectionManager.removeSession(session.getId());
     }
 
     @Override
-    public boolean beforeHandshake(@NotNull ServerHttpRequest request, @NotNull ServerHttpResponse response,
-                                   @NotNull WebSocketHandler wsHandler, @NotNull Map<String, Object> attributes){
+    public boolean beforeHandshake(ServerHttpRequest request, ServerHttpResponse response,
+                                   WebSocketHandler wsHandler, Map<String, Object> attributes){
         return true;
     }
 
     @Override
-    public void afterHandshake(@NotNull ServerHttpRequest request, @NotNull ServerHttpResponse response,
-                               @NotNull WebSocketHandler wsHandler, Exception exception) {
+    public void afterHandshake(ServerHttpRequest request, ServerHttpResponse response,
+                               WebSocketHandler wsHandler, Exception exception) {
     }
 }
