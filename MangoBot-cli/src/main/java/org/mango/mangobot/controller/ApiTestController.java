@@ -8,7 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.mango.mangobot.common.BaseResponse;
 import org.mango.mangobot.common.ResultUtils;
 import org.mango.mangobot.model.onebot.SendMessage;
-import org.mango.mangobot.model.onebot.api.MessageBuilder;
+import org.mango.mangobot.model.onebot.MessageBuilder;
 import org.mango.mangobot.model.onebot.api.response.*;
 import org.mango.mangobot.service.OneBotApiService;
 import org.springframework.web.bind.annotation.*;

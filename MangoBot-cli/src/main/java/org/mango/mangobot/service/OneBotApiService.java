@@ -5,16 +5,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.mango.mangobot.manager.websocket.BotConnectionManager;
 import org.mango.mangobot.manager.websocket.EchoHandler;
 import org.mango.mangobot.model.onebot.SendMessage;
-import org.mango.mangobot.model.onebot.api.MessageBuilder;
 import org.mango.mangobot.model.onebot.api.OneBotApiRequest;
 import org.mango.mangobot.model.onebot.api.OneBotApiResponse;
-import org.mango.mangobot.model.onebot.segment.MessageSegment;
 import org.springframework.stereotype.Service;
 import org.springframework.web.socket.TextMessage;
-import org.springframework.web.socket.WebSocketSession;
 
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
