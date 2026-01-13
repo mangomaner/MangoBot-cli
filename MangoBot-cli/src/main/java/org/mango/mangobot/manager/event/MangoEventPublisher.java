@@ -5,13 +5,12 @@ import org.mango.mangobot.annotation.MangoBotEventListener;
 import org.mango.mangobot.annotation.MangoBotHandler;
 import org.mango.mangobot.annotation.PluginPriority;
 import org.mango.mangobot.model.onebot.event.Event;
+import org.springframework.beans.factory.config.BeanDefinition;
+import org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider;
+import org.springframework.core.type.filter.AnnotationTypeFilter;
 import org.springframework.stereotype.Component;
 
-import java.io.File;
-import java.io.IOException;
 import java.lang.reflect.Method;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -127,52 +126,26 @@ public class MangoEventPublisher {
     }
 
     /**
-     * 扫描上下文类加载器中可访问的、属于给定包及其子包的所有类。
+     * 使用 Spring 的类扫描机制获取指定包中的所有类
+     * 支持 JAR 包和文件系统
      */
-    private List<Class<?>> getClasses(String packageName) throws ClassNotFoundException, IOException {
-        ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
-        String path = packageName.replace('.', '/');
-        Enumeration<URL> resources = classLoader.getResources(path);
-        List<File> dirs = new ArrayList<>();
-        while (resources.hasMoreElements()) {
-            URL resource = resources.nextElement();
-            // 处理 URL 解码（如路径中的空格）
-            String filePath = resource.getFile();
-            try {
-                // 尝试解码以处理空格（%20）
-                filePath = java.net.URLDecoder.decode(filePath, StandardCharsets.UTF_8);
-            } catch (Exception e) {
-                // 忽略
-            }
-            dirs.add(new File(filePath));
-        }
-        ArrayList<Class<?>> classes = new ArrayList<>();
-        for (File directory : dirs) {
-            classes.addAll(findClasses(directory, packageName));
-        }
-        return classes;
-    }
-
-    /**
-     * 递归方法，用于查找给定目录及其子目录中的所有类。
-     */
-    private List<Class<?>> findClasses(File directory, String packageName) throws ClassNotFoundException {
+    private List<Class<?>> getClasses(String packageName) throws ClassNotFoundException {
         List<Class<?>> classes = new ArrayList<>();
-        if (!directory.exists()) {
-            return classes;
-        }
-        File[] files = directory.listFiles();
-        if (files == null) {
-            return classes;
-        }
-        for (File file : files) {
-            if (file.isDirectory()) {
-                assert !file.getName().contains(".");
-                classes.addAll(findClasses(file, packageName + "." + file.getName()));
-            } else if (file.getName().endsWith(".class")) {
-                classes.add(Class.forName(packageName + '.' + file.getName().substring(0, file.getName().length() - 6)));
+        
+        ClassPathScanningCandidateComponentProvider scanner = new ClassPathScanningCandidateComponentProvider(false);
+        scanner.addIncludeFilter(new AnnotationTypeFilter(MangoBotHandler.class));
+        
+        Set<BeanDefinition> candidates = scanner.findCandidateComponents(packageName);
+        
+        for (BeanDefinition candidate : candidates) {
+            try {
+                Class<?> clazz = Class.forName(candidate.getBeanClassName());
+                classes.add(clazz);
+            } catch (ClassNotFoundException e) {
+                log.error("加载类失败: {}", candidate.getBeanClassName(), e);
             }
         }
+        
         return classes;
     }
 
