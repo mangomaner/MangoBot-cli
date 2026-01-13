@@ -6,6 +6,7 @@ import org.mango.mangobot.annotation.PluginPriority;
 import org.mango.mangobot.model.onebot.event.message.GroupMessageEvent;
 import org.mango.mangobot.plugin.Plugin;
 import org.mango.mangobot.plugin.PluginContext;
+import org.mango.mangobot.service.OneBotApiService;
 
 import java.util.logging.Logger;
 
@@ -20,6 +21,7 @@ public class ExamplePlugin implements Plugin {
 
     @Override
     public void onEnable(PluginContext context) {
+        OneBotApiService oneBotApiService = (OneBotApiService) context.getBean("OneBotApiService");
         logger.info("ExamplePlugin 已启用");
     }
 

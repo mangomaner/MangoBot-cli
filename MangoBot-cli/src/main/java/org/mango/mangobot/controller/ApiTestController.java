@@ -53,12 +53,9 @@ public class ApiTestController {
     @Operation(summary = "测试 aaa")
     public BaseResponse<MessageId> aaa() {
         SendMessage builder = MessageBuilder.create()
-                .customNode("1461626638", "哈哈", "[CQ:face,id=123]哈喽～")
+                .text("哈哈")
                 .build();
-        SendMessage builder1 = MessageBuilder.create()
-                .image("https://www.qcyqq.com/wp-content/uploads/60s/old-2024-07-03.png", 1)
-                .build();
-        String json = oneBotApiService.sendGroupMsg(1461626638, 220264051, builder1);
+        String json = oneBotApiService.sendGroupMsg(1461626638, 220264051, builder);
         return ResultUtils.success(parse(json, MessageId.class));
     }
 
