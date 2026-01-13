@@ -70,7 +70,9 @@ public class PluginManager {
                             plugin.onEnable(context);
                             plugins.add(plugin);
                             classLoaders.put(clazz.getName(), loader);
+
                             // registerHandlers(plugin);
+
                             log.info("已加载插件: " + clazz.getName());
                         }
                         if (clazz.isAnnotationPresent(MangoBotHandler.class)){
@@ -105,5 +107,8 @@ public class PluginManager {
             } catch (IOException ignored) {}
         });
         classLoaders.clear();
+        // Ideally we should also unregister listeners from MangoEventPublisher
+        // But currently MangoEventPublisher doesn't support unregistering.
+        // This might be a future improvement.
     }
 }
