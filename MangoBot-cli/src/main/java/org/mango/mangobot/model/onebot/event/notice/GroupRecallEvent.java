@@ -1,6 +1,5 @@
 package org.mango.mangobot.model.onebot.event.notice;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonTypeName;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
@@ -12,19 +11,18 @@ import org.mango.mangobot.model.onebot.event.NoticeEvent;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @ToString(callSuper = true)
-@JsonTypeName("notify")
+@JsonTypeName("group_recall")
 @JsonDeserialize(using = com.fasterxml.jackson.databind.JsonDeserializer.None.class)
-@JsonIgnoreProperties(ignoreUnknown = true)
-public class PokeEvent extends NoticeEvent {
-    @JsonProperty("sub_type")
-    private String subType; // poke
-    
-    @JsonProperty("target_id")
-    private long targetId;
+public class GroupRecallEvent extends NoticeEvent {
+    @JsonProperty("group_id")
+    private long groupId;
     
     @JsonProperty("user_id")
     private long userId;
     
-    @JsonProperty("group_id")
-    private Long groupId; // Nullable for private poke
+    @JsonProperty("operator_id")
+    private long operatorId;
+    
+    @JsonProperty("message_id")
+    private int messageId;
 }

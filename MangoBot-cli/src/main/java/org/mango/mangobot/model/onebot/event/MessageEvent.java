@@ -34,6 +34,9 @@ public abstract class MessageEvent extends BaseEvent {
     @JsonProperty("raw_message")
     private String rawMessage;
 
+    @JsonProperty("raw_pb")
+    private String rawPb;
+
     private int font;
 
     private List<MessageSegment> message;

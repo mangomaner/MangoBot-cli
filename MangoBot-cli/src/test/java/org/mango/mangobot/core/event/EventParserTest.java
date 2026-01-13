@@ -12,6 +12,8 @@ import org.mango.mangobot.model.onebot.event.notice.GroupBanEvent;
 import org.mango.mangobot.model.onebot.event.notice.GroupDecreaseEvent;
 import org.mango.mangobot.model.onebot.event.notice.PokeEvent;
 
+import org.mango.mangobot.model.onebot.event.notice.GroupRecallEvent;
+
 import org.mango.mangobot.model.onebot.segment.KeyboardSegment;
 import org.mango.mangobot.model.onebot.segment.MarkdownSegment;
 
@@ -37,6 +39,19 @@ public class EventParserTest {
         assertTrue(groupEvent.getMessage().get(1) instanceof MarkdownSegment);
         MarkdownSegment markdown = (MarkdownSegment) groupEvent.getMessage().get(1);
         assertEquals("test", markdown.getData().getContent());
+    }
+
+    @Test
+    public void testParseGroupRecall() throws Exception {
+        String json = "{\"time\":1768231994,\"self_id\":1461626638,\"post_type\":\"notice\",\"notice_type\":\"group_recall\",\"operator_id\":2756477287,\"message_id\":-1790873196,\"group_id\":220264051,\"user_id\":2756477287}";
+        
+        Event event = EventParser.parse(json);
+        assertTrue(event instanceof GroupRecallEvent);
+        GroupRecallEvent recall = (GroupRecallEvent) event;
+        
+        assertEquals(220264051L, recall.getGroupId());
+        assertEquals(2756477287L, recall.getOperatorId());
+        assertEquals(-1790873196, recall.getMessageId());
     }
 
     @Test

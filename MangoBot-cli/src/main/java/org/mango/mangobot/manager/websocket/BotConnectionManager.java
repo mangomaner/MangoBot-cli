@@ -15,27 +15,27 @@ import java.util.concurrent.ConcurrentHashMap;
 @Slf4j
 public class BotConnectionManager {
 
-    private final Map<String, BotSession> sessions = new ConcurrentHashMap<>();
+    private final Map<Long, BotSession> sessions = new ConcurrentHashMap<>();
 
     public void registerSession(WebSocketSession webSocketSession) {
         BotSession botSession = new BotSession(webSocketSession);
-        sessions.put(webSocketSession.getId(), botSession);
-        log.debug("注册新 session: {}", webSocketSession.getId());
+        sessions.put(getBotQQ(webSocketSession), botSession);
+        log.debug("注册新连接: {}", getBotQQ(webSocketSession));
     }
 
-    public void removeSession(String sessionId) {
-        BotSession removed = sessions.remove(sessionId);
+    public void removeSession(WebSocketSession session) {
+        BotSession removed = sessions.remove(getBotQQ(session));
         if (removed != null) {
-            log.debug("移除 session: {} (Self ID: {})", sessionId, removed.getSelfId());
+            log.debug("移除连接: {}", getBotQQ(session));
         }
     }
 
-    public BotSession getSession(String sessionId) {
+    public BotSession getSession(Long sessionId) {
         return sessions.get(sessionId);
     }
 
-    public void updateHeartbeat(String sessionId, long interval) {
-        BotSession session = sessions.get(sessionId);
+    public void updateHeartbeat(WebSocketSession webSocketSession, long interval) {
+        BotSession session = sessions.get(getBotQQ(webSocketSession));
         if (session != null) {
             session.updateHeartbeat();
             if (interval > 0) {
@@ -43,13 +43,10 @@ public class BotConnectionManager {
             }
         }
     }
-    
-    public void updateBotId(String sessionId, long selfId) {
-        BotSession session = sessions.get(sessionId);
-        if (session != null) {
-            session.setSelfId(selfId);
-            log.debug("Session {} 绑定至 QQ: {}", sessionId, selfId);
-        }
+
+
+    private Long getBotQQ(WebSocketSession session) {
+        return (Long) session.getAttributes().get("selfId");
     }
 
     /**
@@ -65,7 +62,7 @@ public class BotConnectionManager {
                 log.warn("Session {} 超时 (上次心跳在 {} ms 前). 关闭连接.",
                         session.getSessionId(), now - session.getLastHeartbeatTime());
                 session.close();
-                removeSession(session.getSessionId());
+                removeSession(session.getSession());
             }
         });
     }

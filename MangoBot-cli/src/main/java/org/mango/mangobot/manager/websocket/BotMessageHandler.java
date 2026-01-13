@@ -24,32 +24,40 @@ public class BotMessageHandler extends TextWebSocketHandler implements Handshake
 
     private final MangoEventPublisher eventPublisher;
     private final BotConnectionManager connectionManager;
+    private final EchoHandler echoHandler;
 
-    public BotMessageHandler(MangoEventPublisher eventPublisher, BotConnectionManager connectionManager) {
+    public BotMessageHandler(MangoEventPublisher eventPublisher, BotConnectionManager connectionManager, EchoHandler echoHandler) {
         this.eventPublisher = eventPublisher;
         this.connectionManager = connectionManager;
+        this.echoHandler = echoHandler;
     }
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session){
-        log.info("LLOneBot 连接建立: {}", session.getId());
-        connectionManager.registerSession(session);
+        log.info("LLOneBot 连接建立: {}", session);
+
     }
 
     @Override
     protected void handleTextMessage(WebSocketSession session, TextMessage message){
         String payload = message.getPayload();
 
+        // Check if it's an API response (Echo)
+        if (echoHandler.handleEcho(payload)) {
+            return;
+        }
+
         try {
             Event event = EventParser.parse(payload);
 
             if (event instanceof HeartbeatEvent heartbeat) {
-                connectionManager.updateHeartbeat(session.getId(), heartbeat.getInterval());
+                connectionManager.updateHeartbeat(session, heartbeat.getInterval());
                 return;
             }
             else if (event instanceof LifecycleEvent) {
                 long selfId = event.getSelfId();
-                connectionManager.updateBotId(session.getId(), selfId);
+                session.getAttributes().put("selfId", selfId);
+                connectionManager.registerSession(session);
                 log.info("已连接QQ: {}", selfId);
                 return;
             }
@@ -65,8 +73,8 @@ public class BotMessageHandler extends TextWebSocketHandler implements Handshake
 
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status){
-        log.info("QQ连接断开: {}", session.getId());
-        connectionManager.removeSession(session.getId());
+        log.info("QQ连接断开: {}", session.getAttributes().get("selfId"));
+        connectionManager.removeSession(session);
     }
 
     @Override

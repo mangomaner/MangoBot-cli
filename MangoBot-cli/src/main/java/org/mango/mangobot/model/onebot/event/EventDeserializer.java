@@ -76,6 +76,9 @@ public class EventDeserializer extends StdDeserializer<Event> {
                         case "essence":
                             targetClass = EssenceEvent.class;
                             break;
+                        case "group_recall":
+                            targetClass = GroupRecallEvent.class;
+                            break;
                     }
                 }
                 break;
