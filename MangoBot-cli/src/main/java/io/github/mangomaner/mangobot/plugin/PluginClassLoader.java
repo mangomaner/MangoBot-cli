@@ -66,6 +66,14 @@ public class PluginClassLoader extends URLClassLoader {
             return false;
         }
 
+        // 显式跳过 lombok 包，避免加载 lombok 注解
+        // lombok 是编译期注解，不应在运行时由插件类加载器加载，
+        // 即使 jar 包里包含了 lombok，也应该忽略它或者交给父类加载器（通常父类也不会加载，因为是 provided）
+        // 这里主要防止插件 jar 错误地打入了 lombok 依赖导致运行时冲突或找不到类
+        if (name.startsWith("lombok.")) {
+            return false;
+        }
+
         // 检查本 JAR 中是否存在这个类
         String path = name.replace('.', '/').concat(".class");
         return jarFile.getJarEntry(path) != null;
