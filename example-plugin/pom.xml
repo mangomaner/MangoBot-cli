@@ -17,7 +17,7 @@
     <dependencies>
         <!-- 使用 system scope 引用本地 lib 目录下的 JAR -->
         <dependency>
-            <groupId>org.mango</groupId>
+            <groupId>io.github.mangomaner.mangobot</groupId>
             <artifactId>mangobot</artifactId>
             <version>0.0.1-SNAPSHOT</version>
             <scope>system</scope>

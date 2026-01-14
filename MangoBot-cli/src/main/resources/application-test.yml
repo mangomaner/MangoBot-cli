@@ -1,14 +1,10 @@
 QQ:
-  whitelist: 135125125125, 12412412414
-  botQQ: 123456789
-
-chat-model:
-  api-key: xxx
-  model-name: qwen-turbo
+  whitelist: 220264051, 12412412414
+  botQQ: 2756477287
 
 server:
   port: 8765
 
-# 访问 http://localhost:8765/doc.html# 进入接口文档
+# http://localhost:8765/doc.html#
 knife4j:
   enable: true

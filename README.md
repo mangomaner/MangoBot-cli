@@ -25,12 +25,14 @@ MangoBot-cli/
 
 ## 开发
 
+**注意：** 当您的方法中使用了`@MangoBotxxx`的注解时，请您在类方法上添加 `@MangoBot` 注解，以特殊标识该类，从而让主程序识别。
+
 ### 如何接收消息？
 
-在 `org.mango.mangobot.handler` 文件夹下创建你的消息接收类，加上注解 `@MangoBotHandler`，并在消息处理方法上添加注解 `@MangoBotEventListener`，参数使用 `org.mango.mangobot.model.onebot.event` 包下的事件类型即可。
+在 `org.mango.mangobot.handler` 文件夹下创建你的消息接收类，加上注解 `@MangoBot`（因为方法中使用了`@MangoBotEventListener`注解，所以需要特殊标识该类），并在消息处理方法上添加注解 `@MangoBotEventListener`，参数使用 `org.mango.mangobot.model.onebot.event` 包下的事件类型即可。
 
 ``` java
-@MangoBotHandler
+@MangoBot
 public class MessageHandler {
     @MangoBotEventListener
     @PluginPriority(100)
@@ -127,7 +129,7 @@ public class ExamplePlugin implements Plugin {
 ```
 
 5. **接收和发送消息**：
-   - 接收消息：在任意位置使用 `@MangoBotHandler` 和 `@MangoBotEventListener` 注解即可。
+   - 接收消息：在任意位置使用 `@MangoBot` 和 `@MangoBotEventListener` 注解即可。
    - 发送消息：通过以下方式获取服务实例：
 
      ``` java

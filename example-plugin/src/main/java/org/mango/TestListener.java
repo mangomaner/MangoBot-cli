@@ -1,10 +1,10 @@
 package org.mango;
 
-import org.mango.mangobot.annotation.MangoBotEventListener;
-import org.mango.mangobot.annotation.MangoBotHandler;
-import org.mango.mangobot.model.onebot.event.message.PrivateMessageEvent;
+import io.github.mangomaner.mangobot.annotation.MangoBot;
+import io.github.mangomaner.mangobot.annotation.MangoBotEventListener;
+import io.github.mangomaner.mangobot.model.onebot.event.message.PrivateMessageEvent;
 
-@MangoBotHandler
+@MangoBot
 public class TestListener {
     @MangoBotEventListener
     public boolean onPrivateMessage(PrivateMessageEvent event){

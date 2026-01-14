@@ -1,16 +1,16 @@
 package org.mango;
 
-import org.mango.mangobot.annotation.MangoBotEventListener;
-import org.mango.mangobot.annotation.MangoBotHandler;
-import org.mango.mangobot.annotation.PluginPriority;
-import org.mango.mangobot.model.onebot.event.message.GroupMessageEvent;
-import org.mango.mangobot.plugin.Plugin;
-import org.mango.mangobot.plugin.PluginContext;
-import org.mango.mangobot.service.OneBotApiService;
+import io.github.mangomaner.mangobot.annotation.MangoBot;
+import io.github.mangomaner.mangobot.annotation.MangoBotEventListener;
+import io.github.mangomaner.mangobot.annotation.PluginPriority;
+import io.github.mangomaner.mangobot.model.onebot.event.message.GroupMessageEvent;
+import io.github.mangomaner.mangobot.plugin.Plugin;
+import io.github.mangomaner.mangobot.plugin.PluginContext;
+import io.github.mangomaner.mangobot.service.OneBotApiService;
 
 import java.util.logging.Logger;
 
-@MangoBotHandler
+@MangoBot
 public class ExamplePlugin implements Plugin {
 
     private static final Logger logger = Logger.getLogger(ExamplePlugin.class.getName());
@@ -21,7 +21,7 @@ public class ExamplePlugin implements Plugin {
 
     @Override
     public void onEnable(PluginContext context) {
-        OneBotApiService oneBotApiService = (OneBotApiService) context.getBean("OneBotApiService");
+        OneBotApiService oneBotApiService = (OneBotApiService) context.getBean("oneBotApiService");
         logger.info("ExamplePlugin 已启用");
     }
 
