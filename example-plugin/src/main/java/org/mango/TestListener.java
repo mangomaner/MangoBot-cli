@@ -1,7 +1,7 @@
 package org.mango;
 
 import io.github.mangomaner.mangobot.annotation.MangoBot;
-import io.github.mangomaner.mangobot.annotation.MangoBotEventListener;
+import io.github.mangomaner.mangobot.annotation.messageHandler.MangoBotEventListener;
 import io.github.mangomaner.mangobot.model.onebot.event.message.PrivateMessageEvent;
 
 @MangoBot

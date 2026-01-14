@@ -5,11 +5,11 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
-/**
- * 获取请求体，类似于 Spring 的 @RequestBody
- */
-@Target(ElementType.PARAMETER)
+@Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
-public @interface MangoBotRequestBody {
-    boolean required() default true;
+public @interface PluginDescribe {
+    String name();
+    String author();
+    String version();
+    String description();
 }

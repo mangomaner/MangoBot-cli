@@ -1,9 +1,15 @@
 package io.github.mangomaner.mangobot.plugin;
 
 import io.github.mangomaner.mangobot.annotation.*;
+import io.github.mangomaner.mangobot.annotation.messageHandler.MangoBotApiService;
+import io.github.mangomaner.mangobot.annotation.messageHandler.MangoBotEventListener;
+import io.github.mangomaner.mangobot.annotation.web.MangoBotController;
+import io.github.mangomaner.mangobot.annotation.web.MangoBotRequestMapping;
+import io.github.mangomaner.mangobot.annotation.web.MangoRequestMethod;
 import io.github.mangomaner.mangobot.manager.event.MangoEventPublisher;
 import io.github.mangomaner.mangobot.plugin.register.web.MangoArgumentResolvers;
 import io.github.mangomaner.mangobot.plugin.register.web.MangoReturnValueHandler;
+import io.github.mangomaner.mangobot.service.OneBotApiService;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -21,7 +27,9 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
 import java.io.File;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.jar.JarEntry;
@@ -32,6 +40,9 @@ import java.util.jar.JarFile;
 public class PluginManager {
     @Resource
     private MangoEventPublisher eventPublisher;
+
+    @Resource
+    private OneBotApiService oneBotApiService;
 
     @Resource
     private ConfigurableApplicationContext applicationContext;
@@ -137,32 +148,50 @@ public class PluginManager {
                     try {
                         // 加载类的元信息
                         Class<?> clazz = loader.loadClass(className);
-                        // 若遇到继承了插件接口的类，则直接实例化
-                        if (Plugin.class.isAssignableFrom(clazz) && !clazz.isInterface()) {
-                            Plugin plugin = (Plugin) clazz.getDeclaredConstructor().newInstance();
-                            PluginContext context = new PluginContext(applicationContext);
-                            plugin.onEnable(context);
-                            plugins.add(plugin);
-                            classLoaders.put(clazz.getName(), loader);
-                            log.info("已加载插件: " + clazz.getName());
-                        }
 
-                        // 处理 @MangoBot 注解
-                        if (clazz.isAnnotationPresent(MangoBot.class)) {
-                            registerHandlers(clazz.getDeclaredConstructor().newInstance());
-                        }
+                        boolean isPlugin = Plugin.class.isAssignableFrom(clazz) && !clazz.isInterface();
+                        boolean hasMangoBot = clazz.isAnnotationPresent(MangoBot.class);
+                        boolean isController = clazz.isAnnotationPresent(MangoBotController.class);
 
-                        // 处理 Web Controller ( @MangoBotController)
-                        if (clazz.isAnnotationPresent(MangoBotController.class)) {
+                        Object instance = null;
 
-                            registerController(clazz);
+                        if (hasMangoBot || isController) {
+                            try {
+                                if (isController) {
+                                    // 1. Controller 注册给 Spring
+                                    registerController(clazz);
+                                    classLoaders.putIfAbsent(clazz.getName(), loader);
+                                    String beanName = clazz.getName();
+                                    instance = applicationContext.getBean(beanName);
+                                }
 
-                            // 记录 ClassLoader
-                            if (!classLoaders.containsKey(clazz.getName())) {
-                                classLoaders.put(clazz.getName(), loader);
+                                if (isPlugin) {
+                                    // 2. 实例化 Plugin 并调用 onEnable
+                                    instance = instance == null ? clazz.getDeclaredConstructor().newInstance() : instance;
+                                    Plugin plugin = (Plugin) instance;
+                                    PluginContext context = new PluginContext(applicationContext);
+
+                                    // 统一注册事件监听器 & 注入服务，必须要在 onEnable() 方法前，否则可能因未注册api服务，而onEnable函数用到了从而导致空指针
+                                    registerEventListeners(clazz, instance);
+                                    injectApiServices(clazz, instance);
+
+                                    plugin.onEnable(context);
+                                    plugins.add(plugin);
+                                    log.info("已加载插件: {}", clazz.getName());
+                                } else {
+                                    // 普通 @MangoBot 类
+                                    instance = instance == null ? clazz.getDeclaredConstructor().newInstance(): instance;
+                                    // 统一注册事件监听器 & 注入服务（使用原始 clazz）
+                                    registerEventListeners(clazz, instance);
+                                    injectApiServices(clazz, instance);
+                                }
+
+                                classLoaders.putIfAbsent(clazz.getName(), loader);
+
+                            } catch (ReflectiveOperationException e) {
+                                log.warn("加载或初始化类 {} 失败", className, e);
                             }
                         }
-
                     } catch (Exception e) {
                         log.warn("加载类 {} 失败: {}", className, e.toString());
                     }
@@ -172,7 +201,33 @@ public class PluginManager {
             e.printStackTrace();
         }
     }
+    /**
+     * 注册所有带 @MangoBotEventListener 注解的方法
+     */
+    private void registerEventListeners(Class<?> clazz, Object instance) {
+        for (Method method : clazz.getDeclaredMethods()) {
+            if (method.isAnnotationPresent(MangoBotEventListener.class)) {
+                eventPublisher.registerListener(method, instance);
+            }
+        }
+    }
 
+    /**
+     * 为所有带 @MangoBotApiService 注解的字段注入 oneBotApiService
+     */
+    private void injectApiServices(Class<?> clazz, Object instance) {
+        for (Field field : clazz.getDeclaredFields()) {
+            if (field.isAnnotationPresent(MangoBotApiService.class)) {
+                field.setAccessible(true);
+                try {
+                    field.set(instance, oneBotApiService);
+                } catch (IllegalAccessException e) {
+                    log.error("注入 MangoBotApiService 到 {}.{} 失败",
+                            clazz.getSimpleName(), field.getName(), e);
+                }
+            }
+        }
+    }
     private void registerController(Class<?> clazz) {
         String beanName = clazz.getName();
         if (applicationContext.containsBean(beanName)) {
@@ -272,16 +327,6 @@ public class PluginManager {
             }
         } catch (Exception e) {
             log.error("卸载 Controller {} 失败", beanName, e);
-        }
-    }
-
-    private void registerHandlers(Object instance) {
-        Method[] methods = instance.getClass().getDeclaredMethods();
-        for (Method method : methods) {
-            if (method.isAnnotationPresent(MangoBotEventListener.class)) {
-                eventPublisher.registerListener(method, instance);
-                // log.debug("注册插件 listener: {}", method.getName());
-            }
         }
     }
 

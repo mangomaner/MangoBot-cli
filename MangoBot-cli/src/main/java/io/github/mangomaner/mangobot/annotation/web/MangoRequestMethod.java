@@ -1,4 +1,4 @@
-package io.github.mangomaner.mangobot.annotation;
+package io.github.mangomaner.mangobot.annotation.web;
 
 /**
  * 支持的 HTTP 请求方法枚举

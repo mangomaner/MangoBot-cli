@@ -2,7 +2,7 @@ package io.github.mangomaner.mangobot.manager.model.onebot.event;
 
 import io.github.mangomaner.mangobot.manager.event.MangoEventPublisher;
 import org.junit.jupiter.api.Test;
-import io.github.mangomaner.mangobot.annotation.MangoBotEventListener;
+import io.github.mangomaner.mangobot.annotation.messageHandler.MangoBotEventListener;
 import io.github.mangomaner.mangobot.annotation.PluginPriority;
 import io.github.mangomaner.mangobot.model.onebot.event.message.GroupMessageEvent;
 import org.springframework.beans.factory.annotation.Autowired;

@@ -1,12 +1,10 @@
 package io.github.mangomaner.mangobot.plugin.register.web;
 
-import io.github.mangomaner.mangobot.annotation.MangoBotPathVariable;
-import io.github.mangomaner.mangobot.annotation.MangoBotRequestBody;
-import io.github.mangomaner.mangobot.annotation.MangoBotRequestParam;
-import jakarta.servlet.http.HttpServletRequest;
+import io.github.mangomaner.mangobot.annotation.web.MangoBotPathVariable;
+import io.github.mangomaner.mangobot.annotation.web.MangoBotRequestBody;
+import io.github.mangomaner.mangobot.annotation.web.MangoBotRequestParam;
 import org.springframework.beans.factory.config.ConfigurableBeanFactory;
 import org.springframework.core.MethodParameter;
-import org.springframework.core.convert.ConversionService;
 import org.springframework.http.converter.HttpMessageConverter;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ValueConstants;

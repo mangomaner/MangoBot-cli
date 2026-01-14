@@ -1,12 +1,14 @@
 package org.mango;
 
-import io.github.mangomaner.mangobot.annotation.MangoBotController;
-import io.github.mangomaner.mangobot.annotation.MangoBotRequestMapping;
-import io.github.mangomaner.mangobot.annotation.MangoRequestMethod;
+import io.github.mangomaner.mangobot.annotation.messageHandler.MangoBotApiService;
+import io.github.mangomaner.mangobot.annotation.web.MangoBotController;
+import io.github.mangomaner.mangobot.annotation.web.MangoBotRequestMapping;
+import io.github.mangomaner.mangobot.annotation.web.MangoRequestMethod;
 
 @MangoBotController
 @MangoBotRequestMapping("/my-plugin")
 public class MyPluginController {
+
 
     ZzzDependence zzzDependence = new ZzzDependence();
 

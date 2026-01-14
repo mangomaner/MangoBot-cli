@@ -1,4 +1,4 @@
-package io.github.mangomaner.mangobot.annotation;
+package io.github.mangomaner.mangobot.annotation.web;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
