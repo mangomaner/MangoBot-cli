@@ -1,5 +1,6 @@
 package io.github.mangomaner.mangobot.plugin;
 
+import io.github.mangomaner.mangobot.annotation.PluginDescribe;
 import lombok.Getter;
 import lombok.Setter;
 import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
@@ -20,6 +21,9 @@ public class PluginRuntimeWrapper {
     private final List<String> controllerBeanNames = new ArrayList<>();
     private final List<Object> listenerInstances = new ArrayList<>();
     private final Map<String, List<RequestMappingInfo>> controllerMappings = new HashMap<>();
+    
+    @Setter
+    private PluginDescribe describe;
 
     public PluginRuntimeWrapper(String id, PluginClassLoader classLoader) {
         this.id = id;

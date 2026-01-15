@@ -1,10 +1,12 @@
 package io.github.mangomaner.mangobot.plugin;
 
 import io.github.mangomaner.mangobot.annotation.MangoBot;
+import io.github.mangomaner.mangobot.annotation.PluginDescribe;
 import io.github.mangomaner.mangobot.annotation.web.MangoBotRequestMapping;
 import io.github.mangomaner.mangobot.manager.event.MangoEventPublisher;
 import io.github.mangomaner.mangobot.plugin.register.PluginRegistrar;
 import io.github.mangomaner.mangobot.plugin.unregister.PluginUnloader;
+import io.github.mangomaner.mangobot.model.plugin.PluginInfo;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -13,9 +15,7 @@ import org.springframework.stereotype.Component;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.Enumeration;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
@@ -134,6 +134,13 @@ public class PluginManager {
                                     }
 
                                     if (isPlugin) {
+                                        // 解析 PluginDescribe 注解
+                                        if (clazz.isAnnotationPresent(PluginDescribe.class)) {
+                                            PluginDescribe describe = clazz.getAnnotation(PluginDescribe.class);
+                                            wrapper.setDescribe(describe);
+                                            log.info("发现插件描述: name={}, version={}", describe.name(), describe.version());
+                                        }
+
                                         instance = instance == null ? clazz.getDeclaredConstructor().newInstance() : instance;
                                         Plugin plugin = (Plugin) instance;
                                         wrapper.setPluginInstance(plugin);
@@ -186,7 +193,7 @@ public class PluginManager {
         }
 
         // 创建副本进行遍历，避免并发修改异常
-        new java.util.ArrayList<>(pluginRegistry.keySet()).forEach(this::unloadPlugin);
+        new ArrayList<>(pluginRegistry.keySet()).forEach(this::unloadPlugin);
 
         pluginRegistry.clear();
         log.info("所有插件已卸载");
@@ -208,7 +215,37 @@ public class PluginManager {
     /**
      * 获取已加载的插件ID列表
      */
-    public java.util.List<String> getLoadedPluginIds() {
-        return new java.util.ArrayList<>(pluginRegistry.keySet());
+    public List<String> getLoadedPluginIds() {
+        return new ArrayList<>(pluginRegistry.keySet());
+    }
+
+    /**
+     * 获取已加载插件的详细信息列表
+     */
+    public List<PluginInfo> getLoadedPluginsInfo() {
+        List<PluginInfo> list = new java.util.ArrayList<>();
+        for (Map.Entry<String, PluginRuntimeWrapper> entry : pluginRegistry.entrySet()) {
+            String id = entry.getKey();
+            PluginRuntimeWrapper wrapper = entry.getValue();
+            
+            PluginDescribe describe = wrapper.getDescribe();
+            PluginInfo.PluginInfoBuilder builder = PluginInfo.builder()
+                    .id(id)
+                    .loaded(true);
+
+            if (describe != null) {
+                builder.name(describe.name())
+                       .author(describe.author())
+                       .version(describe.version())
+                       .description(describe.description());
+            } else {
+                builder.name("Unknown")
+                       .author("Unknown")
+                       .version("Unknown")
+                       .description("");
+            }
+            list.add(builder.build());
+        }
+        return list;
     }
 }
