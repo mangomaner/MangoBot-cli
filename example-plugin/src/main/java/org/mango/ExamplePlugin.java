@@ -1,10 +1,9 @@
 package org.mango;
 
 import io.github.mangomaner.mangobot.annotation.MangoBot;
+import io.github.mangomaner.mangobot.annotation.PluginPriority;
 import io.github.mangomaner.mangobot.annotation.messageHandler.MangoBotApiService;
 import io.github.mangomaner.mangobot.annotation.messageHandler.MangoBotEventListener;
-import io.github.mangomaner.mangobot.annotation.PluginPriority;
-import io.github.mangomaner.mangobot.annotation.web.MangoBotController;
 import io.github.mangomaner.mangobot.annotation.web.MangoBotRequestMapping;
 import io.github.mangomaner.mangobot.annotation.web.MangoRequestMethod;
 import io.github.mangomaner.mangobot.model.onebot.event.message.GroupMessageEvent;
@@ -16,7 +15,6 @@ import java.util.logging.Logger;
 
 // 这里包含了所有能注入的东西，包括web部分
 @MangoBot
-@MangoBotController
 @MangoBotRequestMapping("/plugin")
 public class ExamplePlugin implements Plugin {
 

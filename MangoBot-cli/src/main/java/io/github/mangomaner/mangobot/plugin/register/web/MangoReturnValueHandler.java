@@ -1,6 +1,6 @@
 package io.github.mangomaner.mangobot.plugin.register.web;
 
-import io.github.mangomaner.mangobot.annotation.web.MangoBotController;
+import io.github.mangomaner.mangobot.annotation.web.MangoBotRequestMapping;
 import org.springframework.core.MethodParameter;
 import org.springframework.http.converter.HttpMessageConverter;
 import org.springframework.web.accept.ContentNegotiationManager;
@@ -30,8 +30,8 @@ public class MangoReturnValueHandler implements HandlerMethodReturnValueHandler 
 
     @Override
     public boolean supportsReturnType(MethodParameter returnType) {
-        // 只要类上标记了 @MangoBotController，就由本 Handler 处理
-        return returnType.getContainingClass().isAnnotationPresent(MangoBotController.class);
+        // 只要类上标记了 @MangoBotRequestMapping，就由本 Handler 处理
+        return returnType.getContainingClass().isAnnotationPresent(MangoBotRequestMapping.class);
     }
 
     @Override

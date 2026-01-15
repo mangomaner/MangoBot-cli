@@ -105,6 +105,48 @@ public class MangoEventPublisher {
     }
 
     /**
+     * 注销指定实例的所有监听器
+     * @param instance 监听器实例
+     */
+    public void unregisterListener(Object instance) {
+        if (instance == null) {
+            return;
+        }
+
+        for (List<ListenerMethod> listeners : listenerCache.values()) {
+            listeners.removeIf(listener -> listener.bean == instance);
+        }
+        log.info("已注销实例 {} 的所有监听器", instance.getClass().getSimpleName());
+    }
+
+    /**
+     * 注销指定监听器
+     * @param method 监听器方法
+     * @param instance 监听器实例
+     */
+    public void unregisterListener(Method method, Object instance) {
+        if (method == null || instance == null) {
+            return;
+        }
+
+        Class<?>[] parameterTypes = method.getParameterTypes();
+        if (parameterTypes.length != 1) {
+            log.warn("尝试注销的方法 {} 参数数量不正确，无法确定事件类型。", method.getName());
+            return;
+        }
+
+        Class<?> eventType = parameterTypes[0];
+        List<ListenerMethod> listeners = listenerCache.get(eventType);
+
+        if (listeners != null) {
+            boolean removed = listeners.removeIf(listener -> listener.bean == instance && listener.method.equals(method));
+            if (removed) {
+                log.info("已注销监听器: {} 用于事件: {}", method.getName(), eventType.getSimpleName());
+            }
+        }
+    }
+
+    /**
      * 多线程发布事件
      * @param event
      */
@@ -160,6 +202,41 @@ public class MangoEventPublisher {
         
         Collections.sort(result);
         return result;
+    }
+
+    /**
+     * 打印所有已注册的监听器信息，按事件类型分组，每组内按优先级从小到大排列。
+     * 格式示例：EventType -> Listener1 (priority=5) -> Listener2 (priority=10)
+     */
+    public void printAllListeners() {
+        if (listenerCache.isEmpty()) {
+            log.info("当前没有注册任何监听器。");
+            return;
+        }
+
+        // 按事件类型排序（可选，便于阅读）
+        List<Class<?>> sortedEventTypes = new ArrayList<>(listenerCache.keySet());
+        sortedEventTypes.sort(Comparator.comparing(Class::getSimpleName));
+
+        for (Class<?> eventType : sortedEventTypes) {
+            List<ListenerMethod> listeners = listenerCache.get(eventType);
+            if (listeners == null || listeners.isEmpty()) continue;
+
+            // 构建格式：EventClass -> method1 (priority=X) -> method2 (priority=Y)
+            StringBuilder line = new StringBuilder();
+            line.append(eventType.getSimpleName()).append("：O");
+
+            // 监听器已按优先级排序（因 registerListener 中每次 add 后都 sort）
+            // 但为保险起见，再排一次（或直接使用）
+            listeners.stream()
+                    .sorted() // 确保按 priority 升序
+                    .forEach(listener -> {
+                        String methodName = listener.method.getDeclaringClass().getSimpleName() + "." + listener.method.getName();
+                        line.append(" -> ").append(methodName).append(" (priority=").append(listener.priority).append(")");
+                    });
+
+            log.info(line.toString());
+        }
     }
 
     private static class ListenerMethod implements Comparable<ListenerMethod> {

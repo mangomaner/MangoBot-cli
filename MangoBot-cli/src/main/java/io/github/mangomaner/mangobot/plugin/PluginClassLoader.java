@@ -106,4 +106,12 @@ public class PluginClassLoader extends URLClassLoader {
 //            throw new ClassNotFoundException("Failed to load class: " + name, e);
 //        }
 //    }
+
+    @Override
+    public void close() throws java.io.IOException {
+        super.close();
+        if (jarFile != null) {
+            jarFile.close();
+        }
+    }
 }

@@ -21,5 +21,6 @@ public class MangoBotApplication {
 
         PluginManager manager = context.getBean(PluginManager.class);
         manager.loadPlugins();
+        manager.unloadPlugins();
     }
 }
