@@ -112,10 +112,12 @@ public class PluginManager {
                                 .replace("/", ".")
                                 .replace(".class", "");
 
+                        // 跳过模块描述符和 MRJAR 版本特定类
                         if (entry.getName().equals("module-info.class") ||
-                                entry.getName().startsWith("META-INF/versions/") && entry.getName().endsWith("/module-info.class")) {
+                                entry.getName().startsWith("META-INF/versions/")) {
                             continue;
                         }
+
                         try {
                             Class<?> clazz = loader.loadClass(className);
 
@@ -162,8 +164,14 @@ public class PluginManager {
                                     log.warn("加载或初始化类 {} 失败", className, e);
                                 }
                             }
-                        } catch (Exception e) {
-                            log.warn("加载类 {} 失败: {}", className, e.toString());
+                        } catch (Throwable e) {
+                            // 捕获 NoClassDefFoundError 等严重错误，防止因单个类加载失败导致整个插件加载中断
+                            // 对于不关心的第三方库类加载失败，降低日志级别
+                            if (e instanceof NoClassDefFoundError) {
+                                log.debug("跳过无法加载的类 {}: {}", className, e.toString());
+                            } else {
+                                log.warn("加载类 {} 失败: {}", className, e.toString());
+                            }
                         }
                     }
                 }
