@@ -70,6 +70,8 @@ java -jar target/mangobot-0.0.1-SNAPSHOT.jar
 
 ## 插件开发
 
+约定：当您需要用到主项目提供的服务时，请使用 `@MangoBot` 注解，详见下方示例
+
 ### 创建插件
 
 1. 创建一个新的 Maven 项目。
@@ -111,9 +113,16 @@ java -jar target/mangobot-0.0.1-SNAPSHOT.jar
 </build>
 ```
 
-4. 在任意位置实现 `Plugin` 接口即可（`onEnable` 方法相当于主函数，业务逻辑将由此执行）：
+4. 在任意位置实现 `Plugin` 接口即可（`onEnable` 方法相当于主函数，业务逻辑将由此执行）。**注意：必须添加 `@MangoBot` 注解才能被加载。**
 
 ``` java
+@MangoBot
+@PluginDescribe(
+    name = "ExamplePlugin",
+    author = "Mango",
+    version = "1.0.0",
+    description = "这是一个示例插件"
+)
 public class ExamplePlugin implements Plugin {
 
     @Override
@@ -129,14 +138,55 @@ public class ExamplePlugin implements Plugin {
 ```
 
 5. **接收和发送消息**：
-   - 接收消息：在任意位置使用 `@MangoBot` 和 `@MangoBotEventListener` 注解即可。
-   - 发送消息：通过以下方式获取服务实例：
+   - **接收消息**：在任意位置使用 `@MangoBot` 和 `@MangoBotEventListener` 注解即可。
+   - **发送消息**：可以通过 `PluginContext` 获取服务，也可以使用 `@MangoBotApiService` 自动注入。
 
+     **方式一：依赖注入（推荐）**
+     ``` java
+     @MangoBot
+     public class MyHandler {
+         @MangoBotApiService
+         private OneBotApiService oneBotApiService;
+
+         public void doSomething() {
+             // 使用 oneBotApiService 发送消息
+         }
+     }
+     ```
+
+     **方式二：手动获取**
      ``` java
      OneBotApiService oneBotApiService = (OneBotApiService) context.getBean("OneBotApiService");
      ```
 
 6. 打包插件并放入 `plugins` 目录。
+
+### Web 接口开发
+
+MangoBot 支持在插件中开发 Web 接口，使用方式类似 Spring MVC。
+
+1. 在类上添加 `@MangoBot` 和 `@MangoBotRequestMapping` 注解。
+2. 在方法上添加 `@MangoBotRequestMapping` 定义路径和请求方法。
+3. 支持 `@MangoBotRequestParam`、`@MangoBotPathVariable`、`@MangoBotRequestBody` 等参数注解。
+
+```java
+@MangoBot
+@MangoBotRequestMapping("/api/plugin")
+public class WebController {
+
+    // GET 请求示例：/api/plugin/hello?name=Mango
+    @MangoBotRequestMapping(value = "/hello", method = MangoRequestMethod.GET)
+    public String hello(@MangoBotRequestParam("name") String name) {
+        return "Hello, " + name;
+    }
+    
+    // POST 请求示例
+    @MangoBotRequestMapping(value = "/data", method = MangoRequestMethod.POST)
+    public String postData(@MangoBotRequestBody String body) {
+        return "Received: " + body;
+    }
+}
+```
 
 ## 部分设计
 
