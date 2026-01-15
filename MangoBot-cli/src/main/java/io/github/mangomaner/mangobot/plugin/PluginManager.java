@@ -7,6 +7,7 @@ import io.github.mangomaner.mangobot.manager.event.MangoEventPublisher;
 import io.github.mangomaner.mangobot.plugin.register.PluginRegistrar;
 import io.github.mangomaner.mangobot.plugin.unregister.PluginUnloader;
 import io.github.mangomaner.mangobot.model.plugin.PluginInfo;
+import io.github.mangomaner.mangobot.service.OneBotApiService;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -29,6 +30,9 @@ public class PluginManager {
 
     @Resource
     private ConfigurableApplicationContext applicationContext;
+
+    @Resource
+    private OneBotApiService oneBotApiService;
 
     @Resource
     private PluginRegistrar pluginRegistrar;
@@ -122,12 +126,11 @@ public class PluginManager {
                             Class<?> clazz = loader.loadClass(className);
 
                             boolean isPlugin = Plugin.class.isAssignableFrom(clazz) && !clazz.isInterface();
-                            boolean hasMangoBot = clazz.isAnnotationPresent(MangoBot.class);
                             boolean isRequestMapping = clazz.isAnnotationPresent(MangoBotRequestMapping.class);
 
                             Object instance = null;
 
-                            if (hasMangoBot) {
+                            if (isPlugin) {
                                 try {
                                     if (isRequestMapping) {
                                         pluginRegistrar.registerController(clazz, wrapper);
@@ -135,30 +138,23 @@ public class PluginManager {
                                         instance = applicationContext.getBean(beanName);
                                     }
 
-                                    if (isPlugin) {
-                                        // 解析 PluginDescribe 注解
-                                        if (clazz.isAnnotationPresent(PluginDescribe.class)) {
-                                            PluginDescribe describe = clazz.getAnnotation(PluginDescribe.class);
-                                            wrapper.setDescribe(describe);
-                                            log.info("发现插件描述: name={}, version={}", describe.name(), describe.version());
-                                        }
-
-                                        instance = instance == null ? clazz.getDeclaredConstructor().newInstance() : instance;
-                                        Plugin plugin = (Plugin) instance;
-                                        wrapper.setPluginInstance(plugin);
-
-                                        PluginContext context = new PluginContext(applicationContext);
-
-                                        pluginRegistrar.registerEventListeners(clazz, instance, wrapper);
-                                        pluginRegistrar.injectApiServices(clazz, instance);
-
-                                        plugin.onEnable(context);
-                                        log.info("已加载插件主类: {}", clazz.getName());
-                                    } else {
-                                        instance = instance == null ? clazz.getDeclaredConstructor().newInstance() : instance;
-                                        pluginRegistrar.registerEventListeners(clazz, instance, wrapper);
-                                        pluginRegistrar.injectApiServices(clazz, instance);
+                                    // 解析 PluginDescribe 注解
+                                    if (clazz.isAnnotationPresent(PluginDescribe.class)) {
+                                        PluginDescribe describe = clazz.getAnnotation(PluginDescribe.class);
+                                        wrapper.setDescribe(describe);
+                                        log.info("发现插件描述: name={}, version={}", describe.name(), describe.version());
                                     }
+
+                                    instance = instance == null ? clazz.getDeclaredConstructor().newInstance() : instance;
+                                    Plugin plugin = (Plugin) instance;
+                                    wrapper.setPluginInstance(plugin);
+
+                                    PluginContext context = new PluginContext(applicationContext, oneBotApiService);
+
+                                    pluginRegistrar.registerEventListeners(clazz, instance, wrapper);
+
+                                    plugin.onEnable(context);
+                                    log.info("已加载插件主类: {}", clazz.getName());
 
                                 } catch (ReflectiveOperationException e) {
                                     log.warn("加载或初始化类 {} 失败", className, e);

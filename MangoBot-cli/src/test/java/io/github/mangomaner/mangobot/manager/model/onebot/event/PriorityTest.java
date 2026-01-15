@@ -24,15 +24,6 @@ public class PriorityTest {
 
     @Test
     public void testPriorityAndInterruption() {
-        // Manually register the test listener methods because they are in a test class/package
-        // which might not be covered by the default "org.mango.mangobot" scan or 
-        // reflections might behave differently in test context.
-        // Actually, MangoEventPublisher scans "org.mango.mangobot".
-        // Test classes are usually in the same package structure but under src/test/java.
-        // Reflections should pick them up if configured correctly.
-        // However, static inner classes might be tricky. 
-        // Let's force a scan of the current package just in case.
-        publisher.initListeners("org.mango.mangobot");
         
         // Wait, the publisher creates NEW instances of handlers using reflection.
         // It does NOT use the Spring beans.

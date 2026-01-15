@@ -25,50 +25,6 @@ public class MangoEventPublisher {
     private final Map<Class<?>, Object> handlerInstances = new ConcurrentHashMap<>();
     private ThreadPoolExecutor executor = new ThreadPoolExecutor(1, 10, 1000, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(), new ThreadPoolExecutor.CallerRunsPolicy());
 
-    // 无参构造函数，用于 Spring 或手动实例化
-    public MangoEventPublisher() {
-        initListeners("io.github.mangomaner.mangobot.handler");
-    }
-
-    public void initListeners(String packageToScan) {
-        listenerCache.clear();
-        handlerInstances.clear();
-
-        try {
-            // 获取指定包中的所有类并遍历
-            List<Class<?>> classes = getClasses(packageToScan);
-            for (Class<?> clazz : classes) {
-                // 检查类是否被 @MangoBotHandler 注解
-                if (clazz.isAnnotationPresent(MangoBot.class)){
-                    for (Method method : clazz.getDeclaredMethods()) {
-                        if (method.isAnnotationPresent(MangoBotEventListener.class)) {
-                            // 创建或获取处理程序类的实例
-                            Class<?> handlerClass = method.getDeclaringClass();
-                            Object handlerInstance = handlerInstances.computeIfAbsent(handlerClass, k -> {
-                                try {
-                                    return k.getDeclaredConstructor().newInstance();
-                                } catch (Exception e) {
-                                    log.error("实例化处理程序类失败: {}", k.getName(), e);
-                                    return null;
-                                }
-                            });
-                            if (handlerInstance != null) {
-                                registerListener(method, handlerInstance);
-                            }
-                        }
-                    }
-                }
-
-            }
-        } catch (Exception e) {
-            log.error("扫描包失败: {}", packageToScan, e);
-        }
-        
-        // 按优先级排序监听器
-        listenerCache.values().forEach(list -> Collections.sort(list));
-        log.info("主程序 MangoEventPublisher 初始化完成，从包 '{}' 中加载了 {} 种事件类型。", packageToScan, listenerCache.size());
-    }
-
     /**
      * 注册监听器
      * @param method

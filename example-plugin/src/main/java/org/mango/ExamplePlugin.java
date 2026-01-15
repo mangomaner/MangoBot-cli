@@ -1,29 +1,22 @@
 package org.mango;
 
-import io.github.mangomaner.mangobot.annotation.MangoBot;
 import io.github.mangomaner.mangobot.annotation.PluginDescribe;
 import io.github.mangomaner.mangobot.annotation.PluginPriority;
-import io.github.mangomaner.mangobot.annotation.messageHandler.MangoBotApiService;
 import io.github.mangomaner.mangobot.annotation.messageHandler.MangoBotEventListener;
 import io.github.mangomaner.mangobot.annotation.web.MangoBotRequestMapping;
 import io.github.mangomaner.mangobot.annotation.web.MangoRequestMethod;
 import io.github.mangomaner.mangobot.model.onebot.event.message.GroupMessageEvent;
 import io.github.mangomaner.mangobot.plugin.Plugin;
 import io.github.mangomaner.mangobot.plugin.PluginContext;
-import io.github.mangomaner.mangobot.service.OneBotApiService;
 
 import java.util.logging.Logger;
 
 // 这里包含了所有能注入的东西，包括web部分
-@MangoBot
 @MangoBotRequestMapping("/plugin")
 @PluginDescribe(name = "ExamplePlugin", author = "mangomaner", version = "1.0.0", description = "一个示例插件")
 public class ExamplePlugin implements Plugin {
 
-    @MangoBotApiService
-    private OneBotApiService oneBotApiService;
-
-    private static final Logger logger = Logger.getLogger(ExamplePlugin.class.getName());
+    private static final Logger logger = Logger.getLogger("123");
 
     public ExamplePlugin() {
 
@@ -37,11 +30,13 @@ public class ExamplePlugin implements Plugin {
         new Thread(() -> {
             try {
                 Thread.sleep(10000);
-                System.out.println(oneBotApiService.canSendImage(1461626638));
+                System.out.println(context.getOneBotApiService().canSendImage(1461626638));
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
         }).start();
+        ZzzDependence zzzDependence = new ZzzDependence();
+        zzzDependence.zzz();
         logger.info("ExamplePlugin 已启用");
     }
 
