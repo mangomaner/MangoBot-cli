@@ -123,39 +123,15 @@ public class MangoEventPublisher {
         });
     }
 
-    /**
-     * 使用 Spring 的类扫描机制获取指定包中的所有类
-     * 支持 JAR 包和文件系统
-     */
-    private List<Class<?>> getClasses(String packageName) throws ClassNotFoundException {
-        List<Class<?>> classes = new ArrayList<>();
-        
-        ClassPathScanningCandidateComponentProvider scanner = new ClassPathScanningCandidateComponentProvider(false);
-        scanner.addIncludeFilter(new AnnotationTypeFilter(MangoBot.class));
-        
-        Set<BeanDefinition> candidates = scanner.findCandidateComponents(packageName);
-        
-        for (BeanDefinition candidate : candidates) {
-            try {
-                Class<?> clazz = Class.forName(candidate.getBeanClassName());
-                classes.add(clazz);
-            } catch (ClassNotFoundException e) {
-                log.error("加载类失败: {}", candidate.getBeanClassName(), e);
-            }
-        }
-        
-        return classes;
-    }
-
     private List<ListenerMethod> getListenersForEvent(Class<?> eventClass) {
         List<ListenerMethod> result = new ArrayList<>();
-        
+
         for (Map.Entry<Class<?>, List<ListenerMethod>> entry : listenerCache.entrySet()) {
             if (entry.getKey().isAssignableFrom(eventClass)) {
                 result.addAll(entry.getValue());
             }
         }
-        
+
         Collections.sort(result);
         return result;
     }

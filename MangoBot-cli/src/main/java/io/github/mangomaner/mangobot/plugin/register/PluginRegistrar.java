@@ -54,18 +54,18 @@ public class PluginRegistrar {
             // 注册 ArgumentResolvers
             List<HandlerMethodArgumentResolver> argumentResolvers = new ArrayList<>(
                     Objects.requireNonNull(requestMappingHandlerAdapter.getArgumentResolvers()));
-            
+
             argumentResolvers.add(0, new MangoArgumentResolvers.RequestBodyResolver(converters));
             argumentResolvers.add(0, new MangoArgumentResolvers.PathVariableResolver(beanFactory));
             argumentResolvers.add(0, new MangoArgumentResolvers.RequestParamResolver(beanFactory));
-            
+
             requestMappingHandlerAdapter.setArgumentResolvers(argumentResolvers);
             log.debug("已注册 MangoArgumentResolvers");
 
             // 注册 ReturnValueHandler
             List<HandlerMethodReturnValueHandler> handlers = new ArrayList<>(
                     Objects.requireNonNull(requestMappingHandlerAdapter.getReturnValueHandlers()));
-            
+
             MangoReturnValueHandler mangoHandler = new MangoReturnValueHandler(converters);
             handlers.add(0, mangoHandler);
             requestMappingHandlerAdapter.setReturnValueHandlers(handlers);
@@ -99,7 +99,7 @@ public class PluginRegistrar {
             // 3. 解析并注册 RequestMapping
             List<RequestMappingInfo> registeredMappings = new ArrayList<>();
             Method[] methods = clazz.getDeclaredMethods();
-            
+
             for (Method method : methods) {
                 RequestMappingInfo mappingInfo = null;
 
@@ -181,7 +181,7 @@ public class PluginRegistrar {
             case POST: return RequestMethod.POST;
             case PUT: return RequestMethod.PUT;
             case DELETE: return RequestMethod.DELETE;
-            default: return null; 
+            default: return null;
         }
     }
 }

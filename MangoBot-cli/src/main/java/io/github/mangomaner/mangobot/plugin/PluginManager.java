@@ -101,11 +101,22 @@ public class PluginManager {
         }
 
         PluginClassLoader loader = null;
+        ClassLoader originalClassLoader = Thread.currentThread().getContextClassLoader();
+
         try {
+            // 思路：
+            // 1. 创建新的 PluginClassLoader 类加载器（每个插件分配一个）
+            // 2. 暂存现在的类加载器（当前线程的类加载器）
+            // 3. 将当前线程的类加载器设置为新建的 PluginClassLoader，用于执行 Plugin 接口的 onEnable() 方法
+            // 4. 执行完后，将当前线程的类加载器设置回原来的类加载器
+            //
+            // 原理：每个新建的类加载器负责加载一个“子程序”，拥有独立的类空间，可以避免包名冲突和版本问题（也就是说，每个类加载器单独管理一个jar包）
             loader = PluginClassLoader.create(jarFile, getClass().getClassLoader());
+            Thread.currentThread().setContextClassLoader(loader);
+
             PluginRuntimeWrapper wrapper = new PluginRuntimeWrapper(pluginId, loader);
 
-            // 使用 try-with-resources 确保 JarFile 在遍历后立即关闭
+            // 下面开始循环jar包中的类，找到符合条件的类进行加载
             try (JarFile jar = new JarFile(jarFile)) {
                 Enumeration<JarEntry> entries = jar.entries();
 
@@ -116,9 +127,13 @@ public class PluginManager {
                                 .replace("/", ".")
                                 .replace(".class", "");
 
-                        // 跳过模块描述符和 MRJAR 版本特定类
-                        if (entry.getName().equals("module-info.class") ||
-                                entry.getName().startsWith("META-INF/versions/")) {
+                        // 对类名进行解析，只对符合约定好规则的类进行加载
+                        String[] classNameParts = className.split("\\.");
+                        if(!(classNameParts.length > 3 &&
+                                classNameParts[0].equals("io") &&
+                                classNameParts[1].equals("github") &&
+                                classNameParts[3].equals("mangobot"))
+                        ){
                             continue;
                         }
 
@@ -132,6 +147,7 @@ public class PluginManager {
 
                             if (isPlugin) {
                                 try {
+                                    // 解析 @MangoBotRequestMapping
                                     if (isRequestMapping) {
                                         pluginRegistrar.registerController(clazz, wrapper);
                                         String beanName = clazz.getName();
@@ -161,8 +177,6 @@ public class PluginManager {
                                 }
                             }
                         } catch (Throwable e) {
-                            // 捕获 NoClassDefFoundError 等严重错误，防止因单个类加载失败导致整个插件加载中断
-                            // 对于不关心的第三方库类加载失败，降低日志级别
                             if (e instanceof NoClassDefFoundError) {
                                 log.debug("跳过无法加载的类 {}: {}", className, e.toString());
                             } else {
@@ -185,6 +199,8 @@ public class PluginManager {
                     log.warn("关闭加载失败的插件 ClassLoader 出错", ex);
                 }
             }
+        } finally {
+            Thread.currentThread().setContextClassLoader(originalClassLoader);
         }
     }
 
