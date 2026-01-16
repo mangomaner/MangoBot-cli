@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.socket.WebSocketSession;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -44,6 +45,9 @@ public class BotConnectionManager {
         }
     }
 
+    public List<Long> getAllBotQQ() {
+        return sessions.keySet().stream().toList();
+    }
 
     private Long getBotQQ(WebSocketSession session) {
         return (Long) session.getAttributes().get("selfId");

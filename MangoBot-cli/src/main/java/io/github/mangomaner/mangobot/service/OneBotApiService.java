@@ -1,18 +1,18 @@
 package io.github.mangomaner.mangobot.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.github.mangomaner.mangobot.model.onebot.SendMessage;
-import lombok.extern.slf4j.Slf4j;
+import com.fasterxml.jackson.databind.type.CollectionType;
 import io.github.mangomaner.mangobot.manager.websocket.BotConnectionManager;
 import io.github.mangomaner.mangobot.manager.websocket.EchoHandler;
+import io.github.mangomaner.mangobot.model.onebot.SendMessage;
 import io.github.mangomaner.mangobot.model.onebot.api.OneBotApiRequest;
 import io.github.mangomaner.mangobot.model.onebot.api.OneBotApiResponse;
+import io.github.mangomaner.mangobot.model.onebot.api.response.*;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.socket.TextMessage;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -38,13 +38,13 @@ public class OneBotApiService {
      * @param botId  机器人QQ号
      * @param userId 对方QQ号
      * @param message 消息内容（支持 MessageBuilder 构建的 List<MessageSegment> 或 字符串）
-     * @return 响应数据 (JSON String)
+     * @return MessageId
      */
-    public String sendPrivateMsg(long botId, long userId, SendMessage message) {
+    public MessageId sendPrivateMsg(long botId, long userId, SendMessage message) {
         Map<String, Object> params = new HashMap<>();
         params.put("user_id", userId);
         params.put("message", message.getMessage());
-        return callApi(botId, "send_private_msg", params);
+        return callApi(botId, "send_private_msg", params, MessageId.class);
     }
 
     /**
@@ -53,13 +53,13 @@ public class OneBotApiService {
      * @param botId   机器人QQ号
      * @param groupId 群号
      * @param message 消息内容
-     * @return 响应数据 (JSON String)
+     * @return MessageId
      */
-    public String sendGroupMsg(long botId, long groupId, SendMessage message) {
+    public MessageId sendGroupMsg(long botId, long groupId, SendMessage message) {
         Map<String, Object> params = new HashMap<>();
         params.put("group_id", groupId);
         params.put("message", message.getMessage());
-        return callApi(botId, "send_group_msg", params);
+        return callApi(botId, "send_group_msg", params, MessageId.class);
     }
 
     /**
@@ -68,10 +68,10 @@ public class OneBotApiService {
      * @param botId     机器人QQ号
      * @param messageId 消息ID
      */
-    public String deleteMsg(long botId, int messageId) {
+    public void deleteMsg(long botId, int messageId) {
         Map<String, Object> params = new HashMap<>();
         params.put("message_id", messageId);
-        return callApi(botId, "delete_msg", params);
+        callApiVoid(botId, "delete_msg", params);
     }
 
     /**
@@ -81,11 +81,11 @@ public class OneBotApiService {
      * @param groupId 群号
      * @param messages 消息节点列表
      */
-    public String sendGroupForwardMsg(long botId, long groupId, Object messages) {
+    public MessageId sendGroupForwardMsg(long botId, long groupId, Object messages) {
         Map<String, Object> params = new HashMap<>();
         params.put("group_id", groupId);
         params.put("messages", messages);
-        return callApi(botId, "send_group_forward_msg", params);
+        return callApi(botId, "send_group_forward_msg", params, MessageId.class);
     }
 
     /**
@@ -95,11 +95,11 @@ public class OneBotApiService {
      * @param userId 用户QQ号
      * @param messages 消息节点列表
      */
-    public String sendPrivateForwardMsg(long botId, long userId, Object messages) {
+    public MessageId sendPrivateForwardMsg(long botId, long userId, Object messages) {
         Map<String, Object> params = new HashMap<>();
         params.put("user_id", userId);
         params.put("messages", messages);
-        return callApi(botId, "send_private_forward_msg", params);
+        return callApi(botId, "send_private_forward_msg", params, MessageId.class);
     }
 
     /**
@@ -109,281 +109,313 @@ public class OneBotApiService {
      * @param groupId 群号
      * @param noCache 是否不使用缓存
      */
-    public String getGroupInfo(long botId, long groupId, boolean noCache) {
+    public GroupInfo getGroupInfo(long botId, long groupId, boolean noCache) {
         Map<String, Object> params = new HashMap<>();
         params.put("group_id", groupId);
         params.put("no_cache", noCache);
-        return callApi(botId, "get_group_info", params);
+        return callApi(botId, "get_group_info", params, GroupInfo.class);
     }
 
     /**
      * 发送消息 (通用)
      */
     @Deprecated
-    public String sendMsg(long botId, String messageType, Long userId, Long groupId, Object message) {
+    public MessageId sendMsg(long botId, String messageType, Long userId, Long groupId, Object message) {
         Map<String, Object> params = new HashMap<>();
         params.put("message_type", messageType);
         if (userId != null) params.put("user_id", userId);
         if (groupId != null) params.put("group_id", groupId);
         params.put("message", message);
-        return callApi(botId, "send_msg", params);
+        return callApi(botId, "send_msg", params, MessageId.class);
     }
 
     /**
      * 获取消息
      */
-    public String getMsg(long botId, int messageId) {
+    public MessageInfo getMsg(long botId, int messageId) {
         Map<String, Object> params = new HashMap<>();
         params.put("message_id", messageId);
-        return callApi(botId, "get_msg", params);
+        return callApi(botId, "get_msg", params, MessageInfo.class);
     }
 
     /**
      * 获取合并转发消息
      */
-    public String getForwardMsg(long botId, String id) {
+    public Map<String, Object> getForwardMsg(long botId, String id) {
         Map<String, Object> params = new HashMap<>();
         params.put("id", id);
-        return callApi(botId, "get_forward_msg", params);
+        // 暂未明确具体 Model，使用 Map 返回
+        return callApi(botId, "get_forward_msg", params, Map.class);
     }
 
     /**
      * 发送好友赞
      */
-    public String sendLike(long botId, long userId, int times) {
+    public void sendLike(long botId, long userId, int times) {
         Map<String, Object> params = new HashMap<>();
         params.put("user_id", userId);
         params.put("times", times);
-        return callApi(botId, "send_like", params);
+        callApiVoid(botId, "send_like", params);
     }
 
     /**
      * 群组踢人
      */
-    public String setGroupKick(long botId, long groupId, long userId, boolean rejectAddRequest) {
+    public void setGroupKick(long botId, long groupId, long userId, boolean rejectAddRequest) {
         Map<String, Object> params = new HashMap<>();
         params.put("group_id", groupId);
         params.put("user_id", userId);
         params.put("reject_add_request", rejectAddRequest);
-        return callApi(botId, "set_group_kick", params);
+        callApiVoid(botId, "set_group_kick", params);
     }
 
     /**
      * 群组单人禁言
      */
-    public String setGroupBan(long botId, long groupId, long userId, long duration) {
+    public void setGroupBan(long botId, long groupId, long userId, long duration) {
         Map<String, Object> params = new HashMap<>();
         params.put("group_id", groupId);
         params.put("user_id", userId);
         params.put("duration", duration);
-        return callApi(botId, "set_group_ban", params);
+        callApiVoid(botId, "set_group_ban", params);
     }
 
     /**
      * 群组全员禁言
      */
-    public String setGroupWholeBan(long botId, long groupId, boolean enable) {
+    public void setGroupWholeBan(long botId, long groupId, boolean enable) {
         Map<String, Object> params = new HashMap<>();
         params.put("group_id", groupId);
         params.put("enable", enable);
-        return callApi(botId, "set_group_whole_ban", params);
+        callApiVoid(botId, "set_group_whole_ban", params);
     }
 
     /**
      * 群组设置管理员
      */
-    public String setGroupAdmin(long botId, long groupId, long userId, boolean enable) {
+    public void setGroupAdmin(long botId, long groupId, long userId, boolean enable) {
         Map<String, Object> params = new HashMap<>();
         params.put("group_id", groupId);
         params.put("user_id", userId);
         params.put("enable", enable);
-        return callApi(botId, "set_group_admin", params);
+        callApiVoid(botId, "set_group_admin", params);
     }
 
     /**
      * 群组匿名
      */
-    public String setGroupAnonymous(long botId, long groupId, boolean enable) {
+    public void setGroupAnonymous(long botId, long groupId, boolean enable) {
         Map<String, Object> params = new HashMap<>();
         params.put("group_id", groupId);
         params.put("enable", enable);
-        return callApi(botId, "set_group_anonymous", params);
+        callApiVoid(botId, "set_group_anonymous", params);
     }
 
     /**
      * 设置群名片
      */
-    public String setGroupCard(long botId, long groupId, long userId, String card) {
+    public void setGroupCard(long botId, long groupId, long userId, String card) {
         Map<String, Object> params = new HashMap<>();
         params.put("group_id", groupId);
         params.put("user_id", userId);
         params.put("card", card);
-        return callApi(botId, "set_group_card", params);
+        callApiVoid(botId, "set_group_card", params);
     }
 
     /**
      * 设置群名
      */
-    public String setGroupName(long botId, long groupId, String groupName) {
+    public void setGroupName(long botId, long groupId, String groupName) {
         Map<String, Object> params = new HashMap<>();
         params.put("group_id", groupId);
         params.put("group_name", groupName);
-        return callApi(botId, "set_group_name", params);
+        callApiVoid(botId, "set_group_name", params);
     }
 
     /**
      * 退出群组
      */
-    public String setGroupLeave(long botId, long groupId, boolean isDismiss) {
+    public void setGroupLeave(long botId, long groupId, boolean isDismiss) {
         Map<String, Object> params = new HashMap<>();
         params.put("group_id", groupId);
         params.put("is_dismiss", isDismiss);
-        return callApi(botId, "set_group_leave", params);
+        callApiVoid(botId, "set_group_leave", params);
     }
 
     /**
      * 设置群组专属头衔
      */
-    public String setGroupSpecialTitle(long botId, long groupId, long userId, String specialTitle, long duration) {
+    public void setGroupSpecialTitle(long botId, long groupId, long userId, String specialTitle, long duration) {
         Map<String, Object> params = new HashMap<>();
         params.put("group_id", groupId);
         params.put("user_id", userId);
         params.put("special_title", specialTitle);
         params.put("duration", duration);
-        return callApi(botId, "set_group_special_title", params);
+        callApiVoid(botId, "set_group_special_title", params);
     }
 
     /**
      * 处理加好友请求
      */
-    public String setFriendAddRequest(long botId, String flag, boolean approve, String remark) {
+    public void setFriendAddRequest(long botId, String flag, boolean approve, String remark) {
         Map<String, Object> params = new HashMap<>();
         params.put("flag", flag);
         params.put("approve", approve);
         params.put("remark", remark);
-        return callApi(botId, "set_friend_add_request", params);
+        callApiVoid(botId, "set_friend_add_request", params);
     }
 
     /**
      * 处理加群请求／邀请
      */
-    public String setGroupAddRequest(long botId, String flag, String subType, boolean approve, String reason) {
+    public void setGroupAddRequest(long botId, String flag, String subType, boolean approve, String reason) {
         Map<String, Object> params = new HashMap<>();
         params.put("flag", flag);
         params.put("sub_type", subType);
         params.put("approve", approve);
         params.put("reason", reason);
-        return callApi(botId, "set_group_add_request", params);
+        callApiVoid(botId, "set_group_add_request", params);
     }
 
     /**
      * 获取登录号信息
      */
-    public String getLoginInfo(long botId) {
-        return callApi(botId, "get_login_info", new HashMap<>());
+    public LoginInfo getLoginInfo(long botId) {
+        return callApi(botId, "get_login_info", new HashMap<>(), LoginInfo.class);
     }
 
     /**
      * 获取陌生人信息
      */
-    public String getStrangerInfo(long botId, long userId, boolean noCache) {
+    public StrangerInfo getStrangerInfo(long botId, long userId, boolean noCache) {
         Map<String, Object> params = new HashMap<>();
         params.put("user_id", userId);
         params.put("no_cache", noCache);
-        return callApi(botId, "get_stranger_info", params);
+        return callApi(botId, "get_stranger_info", params, StrangerInfo.class);
     }
 
     /**
      * 获取好友列表
      */
-    public String getFriendList(long botId) {
-        return callApi(botId, "get_friend_list", new HashMap<>());
+    public List<FriendInfo> getFriendList(long botId) {
+        return callApiList(botId, "get_friend_list", new HashMap<>(), FriendInfo.class);
     }
 
     /**
      * 获取群列表
      */
-    public String getGroupList(long botId) {
-        return callApi(botId, "get_group_list", new HashMap<>());
+    public List<GroupInfo> getGroupList(long botId) {
+        return callApiList(botId, "get_group_list", new HashMap<>(), GroupInfo.class);
     }
 
     /**
      * 获取群成员信息
      */
-    public String getGroupMemberInfo(long botId, long groupId, long userId, boolean noCache) {
+    public GroupMemberInfo getGroupMemberInfo(long botId, long groupId, long userId, boolean noCache) {
         Map<String, Object> params = new HashMap<>();
         params.put("group_id", groupId);
         params.put("user_id", userId);
         params.put("no_cache", noCache);
-        return callApi(botId, "get_group_member_info", params);
+        return callApi(botId, "get_group_member_info", params, GroupMemberInfo.class);
     }
 
     /**
      * 获取群成员列表
      */
-    public String getGroupMemberList(long botId, long groupId) {
+    public List<GroupMemberInfo> getGroupMemberList(long botId, long groupId) {
         Map<String, Object> params = new HashMap<>();
         params.put("group_id", groupId);
-        return callApi(botId, "get_group_member_list", params);
+        return callApiList(botId, "get_group_member_list", params, GroupMemberInfo.class);
     }
 
     /**
      * 获取群荣誉信息
      */
-    public String getGroupHonorInfo(long botId, long groupId, String type) {
+    public GroupHonorInfo getGroupHonorInfo(long botId, long groupId, String type) {
         Map<String, Object> params = new HashMap<>();
         params.put("group_id", groupId);
         params.put("type", type);
-        return callApi(botId, "get_group_honor_info", params);
+        return callApi(botId, "get_group_honor_info", params, GroupHonorInfo.class);
     }
 
     /**
      * 获取语音
      *   @param file 收到的语音文件名（消息段的 file 参数），如 0B38145AA44505000B38145AA4450500.silk
      *   @param outFormat 要转换到的格式，目前支持 mp3、amr、wma、m4a、spx、ogg、wav、flac
-     *   @return 转换后的语音文件路径，如 /home/somebody/cqhttp/data/record/0B38145AA44505000B38145AA4450500.mp3
+     *   @return FileInfo
      */
-    public String getRecord(long botId, String file, String outFormat) {
+    public FileInfo getRecord(long botId, String file, String outFormat) {
         Map<String, Object> params = new HashMap<>();
         params.put("file", file);
         params.put("out_format", outFormat);
-        return callApi(botId, "get_record", params);
+        return callApi(botId, "get_record", params, FileInfo.class);
     }
 
     /**
      * 获取图片
      *  @param file 收到的图片文件名（消息段的 file 参数），如 6B4DE3DFD1BD271E3297859D41C530F5.jpg
-     *  @return 下载后的图片文件路径，如 /data/image/6B4DE3DFD1BD271E3297859D41C530F5.jpg
+     *  @return FileInfo
      */
-    public String getImage(long botId, String file) {
+    public FileInfo getImage(long botId, String file) {
         Map<String, Object> params = new HashMap<>();
         params.put("file", file);
-        return callApi(botId, "get_image", params);
+        return callApi(botId, "get_image", params, FileInfo.class);
     }
 
     /**
      * 检查是否可以发送图片
      */
-    public String canSendImage(long botId) {
-        return callApi(botId, "can_send_image", new HashMap<>());
+    public CanSendInfo canSendImage(long botId) {
+        return callApi(botId, "can_send_image", new HashMap<>(), CanSendInfo.class);
     }
 
     /**
      * 检查是否可以发送语音
      */
-    public String canSendRecord(long botId) {
-        return callApi(botId, "can_send_record", new HashMap<>());
+    public CanSendInfo canSendRecord(long botId) {
+        return callApi(botId, "can_send_record", new HashMap<>(), CanSendInfo.class);
     }
 
     /**
-     * 通用 API 调用方法 (同步等待响应)
+     * 通用 API 调用方法 (返回 void)
+     */
+    public void callApiVoid(long botId, String action, Map<String, Object> params) {
+        callApi(botId, action, params, Void.class);
+    }
+
+    /**
+     * 通用 API 调用方法 (返回 List)
+     */
+    public <T> List<T> callApiList(long botId, String action, Map<String, Object> params, Class<T> elementType) {
+        Object data = callApiRaw(botId, action, params);
+        if (data == null) {
+            return Collections.emptyList();
+        }
+        CollectionType listType = objectMapper.getTypeFactory().constructCollectionType(List.class, elementType);
+        return objectMapper.convertValue(data, listType);
+    }
+
+    /**
+     * 通用 API 调用方法 (返回指定类型)
      *
      * @param botId  机器人QQ号
      * @param action API 动作名称
      * @param params 参数
-     * @return 响应的 data 字段 (JSON String)
+     * @param responseType 返回值类型
+     * @return 响应数据对象
      */
-    public String callApi(long botId, String action, Map<String, Object> params) {
+    public <T> T callApi(long botId, String action, Map<String, Object> params, Class<T> responseType) {
+        Object data = callApiRaw(botId, action, params);
+        if (data == null) {
+            return null;
+        }
+        return objectMapper.convertValue(data, responseType);
+    }
+
+    /**
+     * 基础 API 调用 (返回原始 Object data)
+     */
+    private Object callApiRaw(long botId, String action, Map<String, Object> params) {
         BotConnectionManager.BotSession botSession = connectionManager.getSession(botId);
         if (botSession == null || !botSession.isConnected()) {
             log.error("机器人 {} 未连接或会话不存在，无法发送 API 请求: {}", botId, action);
@@ -415,7 +447,7 @@ public class OneBotApiService {
                 log.warn("API 调用返回非零状态: {} - {}", response.getRetcode(), response.getMessage());
             }
             
-            return objectMapper.writeValueAsString(response.getData());
+            return response.getData();
             
         } catch (Exception e) {
             log.error("发送 API 请求失败: {}", action, e);
@@ -423,30 +455,3 @@ public class OneBotApiService {
         }
     }
 }
-
-
-
-///**
-// * 获取 Cookies
-// */
-//public String getCookies(long botId, String domain) {
-//    Map<String, Object> params = new HashMap<>();
-//    params.put("domain", domain);
-//    return callApi(botId, "get_cookies", params);
-//}
-//
-///**
-// * 获取 CSRF Token
-// */
-//public String getCsrfToken(long botId) {
-//    return callApi(botId, "get_csrf_token", new HashMap<>());
-//}
-//
-///**
-// * 获取 QQ 相关接口凭证
-// */
-//public String getCredentials(long botId, String domain) {
-//    Map<String, Object> params = new HashMap<>();
-//    params.put("domain", domain);
-//    return callApi(botId, "get_credentials", params);
-//}

@@ -1,7 +1,5 @@
 package io.github.mangomaner.mangobot.controller;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
@@ -14,6 +12,7 @@ import io.github.mangomaner.mangobot.service.OneBotApiService;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/test")
@@ -22,31 +21,9 @@ import java.util.List;
 public class ApiTestController {
 
     private final OneBotApiService oneBotApiService;
-    private final ObjectMapper objectMapper;
 
-    public ApiTestController(OneBotApiService oneBotApiService, ObjectMapper objectMapper) {
+    public ApiTestController(OneBotApiService oneBotApiService) {
         this.oneBotApiService = oneBotApiService;
-        this.objectMapper = objectMapper;
-    }
-
-    private <T> T parse(String json, Class<T> clazz) {
-        try {
-            if (json == null) return null;
-            return objectMapper.readValue(json, clazz);
-        } catch (JsonProcessingException e) {
-            log.error("JSON parse error", e);
-            throw new RuntimeException(e);
-        }
-    }
-    
-    private <T> List<T> parseList(String json, Class<T> clazz) {
-        try {
-            if (json == null) return null;
-            return objectMapper.readValue(json, objectMapper.getTypeFactory().constructCollectionType(List.class, clazz));
-        } catch (JsonProcessingException e) {
-            log.error("JSON parse error", e);
-            throw new RuntimeException(e);
-        }
     }
 
     @GetMapping("/aaa")
@@ -55,22 +32,22 @@ public class ApiTestController {
         SendMessage builder = MessageBuilder.create()
                 .text("哈哈")
                 .build();
-        String json = oneBotApiService.sendGroupMsg(1461626638, 220264051, builder);
-        return ResultUtils.success(parse(json, MessageId.class));
+        MessageId result = oneBotApiService.sendGroupMsg(1461626638, 220264051, builder);
+        return ResultUtils.success(result);
     }
 
     @PostMapping("/sendGroupForwardMsg")
     @Operation(summary = "发送合并转发消息 (群)")
     public BaseResponse<MessageId> sendGroupForwardMsg(@RequestParam long botId, @RequestParam long groupId, @RequestBody Object messages) {
-        String json = oneBotApiService.sendGroupForwardMsg(botId, groupId, messages);
-        return ResultUtils.success(parse(json, MessageId.class));
+        MessageId result = oneBotApiService.sendGroupForwardMsg(botId, groupId, messages);
+        return ResultUtils.success(result);
     }
 
     @PostMapping("/sendPrivateForwardMsg")
     @Operation(summary = "发送合并转发消息 (私聊)")
     public BaseResponse<MessageId> sendPrivateForwardMsg(@RequestParam long botId, @RequestParam long userId, @RequestBody Object messages) {
-        String json = oneBotApiService.sendPrivateForwardMsg(botId, userId, messages);
-        return ResultUtils.success(parse(json, MessageId.class));
+        MessageId result = oneBotApiService.sendPrivateForwardMsg(botId, userId, messages);
+        return ResultUtils.success(result);
     }
 
     @PostMapping("/sendPrivateMsg")
@@ -80,8 +57,8 @@ public class ApiTestController {
         SendMessage sendMessage = MessageBuilder.create()
                 .text(message)
                 .build();
-        String json = oneBotApiService.sendPrivateMsg(botId, userId, sendMessage);
-        return ResultUtils.success(parse(json, MessageId.class));
+        MessageId result = oneBotApiService.sendPrivateMsg(botId, userId, sendMessage);
+        return ResultUtils.success(result);
     }
 
     @PostMapping("/sendGroupMsg")
@@ -91,8 +68,8 @@ public class ApiTestController {
         SendMessage sendMessage = MessageBuilder.create()
                 .text(message)
                 .build();
-        String json = oneBotApiService.sendGroupMsg(botId, groupId, sendMessage);
-        return ResultUtils.success(parse(json, MessageId.class));
+        MessageId result = oneBotApiService.sendGroupMsg(botId, groupId, sendMessage);
+        return ResultUtils.success(result);
     }
 
     @PostMapping("/sendComplexGroupMsg")
@@ -107,8 +84,8 @@ public class ApiTestController {
                 .image(imageUrl, 1)
                 .build();
         
-        String json = oneBotApiService.sendGroupMsg(botId, groupId, builder);
-        return ResultUtils.success(parse(json, MessageId.class));
+        MessageId result = oneBotApiService.sendGroupMsg(botId, groupId, builder);
+        return ResultUtils.success(result);
     }
 
     @PostMapping("/deleteMsg")
@@ -123,92 +100,92 @@ public class ApiTestController {
     @Operation(summary = "获取群信息")
     public BaseResponse<GroupInfo> getGroupInfo(@RequestParam long botId, @RequestParam long groupId, @RequestParam(defaultValue = "false") boolean noCache) {
         log.info("测试获取群信息: botId={}, groupId={}, noCache={}", botId, groupId, noCache);
-        String json = oneBotApiService.getGroupInfo(botId, groupId, noCache);
-        return ResultUtils.success(parse(json, GroupInfo.class));
+        GroupInfo result = oneBotApiService.getGroupInfo(botId, groupId, noCache);
+        return ResultUtils.success(result);
     }
 
     @PostMapping("/sendMsg")
     @Operation(summary = "发送消息 (通用)")
     public BaseResponse<MessageId> sendMsg(@RequestParam long botId, @RequestParam String messageType, @RequestParam(required = false) Long userId, @RequestParam(required = false) Long groupId, @RequestParam String message) {
-        String json = oneBotApiService.sendMsg(botId, messageType, userId, groupId, message);
-        return ResultUtils.success(parse(json, MessageId.class));
+        MessageId result = oneBotApiService.sendMsg(botId, messageType, userId, groupId, message);
+        return ResultUtils.success(result);
     }
 
     @GetMapping("/getMsg")
     @Operation(summary = "获取消息")
     public BaseResponse<MessageInfo> getMsg(@RequestParam long botId, @RequestParam int messageId) {
-        String json = oneBotApiService.getMsg(botId, messageId);
-        return ResultUtils.success(parse(json, MessageInfo.class));
+        MessageInfo result = oneBotApiService.getMsg(botId, messageId);
+        return ResultUtils.success(result);
     }
 
     @GetMapping("/getLoginInfo")
     @Operation(summary = "获取登录号信息")
     public BaseResponse<LoginInfo> getLoginInfo(@RequestParam long botId) {
-        String json = oneBotApiService.getLoginInfo(botId);
-        return ResultUtils.success(parse(json, LoginInfo.class));
+        LoginInfo result = oneBotApiService.getLoginInfo(botId);
+        return ResultUtils.success(result);
     }
 
     @GetMapping("/getFriendList")
     @Operation(summary = "获取好友列表")
     public BaseResponse<List<FriendInfo>> getFriendList(@RequestParam long botId) {
-        String json = oneBotApiService.getFriendList(botId);
-        return ResultUtils.success(parseList(json, FriendInfo.class));
+        List<FriendInfo> result = oneBotApiService.getFriendList(botId);
+        return ResultUtils.success(result);
     }
 
     @GetMapping("/getGroupList")
     @Operation(summary = "获取群列表")
     public BaseResponse<List<GroupInfo>> getGroupList(@RequestParam long botId) {
-        String json = oneBotApiService.getGroupList(botId);
-        return ResultUtils.success(parseList(json, GroupInfo.class));
+        List<GroupInfo> result = oneBotApiService.getGroupList(botId);
+        return ResultUtils.success(result);
     }
 
     @GetMapping("/getGroupMemberInfo")
     @Operation(summary = "获取群成员信息")
     public BaseResponse<GroupMemberInfo> getGroupMemberInfo(@RequestParam long botId, @RequestParam long groupId, @RequestParam long userId, @RequestParam(defaultValue = "false") boolean noCache) {
-        String json = oneBotApiService.getGroupMemberInfo(botId, groupId, userId, noCache);
-        return ResultUtils.success(parse(json, GroupMemberInfo.class));
+        GroupMemberInfo result = oneBotApiService.getGroupMemberInfo(botId, groupId, userId, noCache);
+        return ResultUtils.success(result);
     }
 
     @GetMapping("/getGroupMemberList")
     @Operation(summary = "获取群成员列表")
     public BaseResponse<List<GroupMemberInfo>> getGroupMemberList(@RequestParam long botId, @RequestParam long groupId) {
-        String json = oneBotApiService.getGroupMemberList(botId, groupId);
-        return ResultUtils.success(parseList(json, GroupMemberInfo.class));
+        List<GroupMemberInfo> result = oneBotApiService.getGroupMemberList(botId, groupId);
+        return ResultUtils.success(result);
     }
 
     @GetMapping("/getGroupHonorInfo")
     @Operation(summary = "获取群荣誉信息")
     public BaseResponse<GroupHonorInfo> getGroupHonorInfo(@RequestParam long botId, @RequestParam long groupId, @RequestParam String type) {
-        String json = oneBotApiService.getGroupHonorInfo(botId, groupId, type);
-        return ResultUtils.success(parse(json, GroupHonorInfo.class));
+        GroupHonorInfo result = oneBotApiService.getGroupHonorInfo(botId, groupId, type);
+        return ResultUtils.success(result);
     }
 
     @GetMapping("/getRecord")
     @Operation(summary = "获取语音")
     public BaseResponse<FileInfo> getRecord(@RequestParam long botId, @RequestParam String file, @RequestParam String outFormat) {
-        String json = oneBotApiService.getRecord(botId, file, outFormat);
-        return ResultUtils.success(parse(json, FileInfo.class));
+        FileInfo result = oneBotApiService.getRecord(botId, file, outFormat);
+        return ResultUtils.success(result);
     }
 
     @GetMapping("/getImage")
     @Operation(summary = "获取图片")
     public BaseResponse<FileInfo> getImage(@RequestParam long botId, @RequestParam String file) {
-        String json = oneBotApiService.getImage(botId, file);
-        return ResultUtils.success(parse(json, FileInfo.class));
+        FileInfo result = oneBotApiService.getImage(botId, file);
+        return ResultUtils.success(result);
     }
 
     @GetMapping("/canSendImage")
     @Operation(summary = "检查是否可以发送图片")
     public BaseResponse<CanSendInfo> canSendImage(@RequestParam long botId) {
-        String json = oneBotApiService.canSendImage(botId);
-        return ResultUtils.success(parse(json, CanSendInfo.class));
+        CanSendInfo result = oneBotApiService.canSendImage(botId);
+        return ResultUtils.success(result);
     }
 
     @GetMapping("/canSendRecord")
     @Operation(summary = "检查是否可以发送语音")
     public BaseResponse<CanSendInfo> canSendRecord(@RequestParam long botId) {
-        String json = oneBotApiService.canSendRecord(botId);
-        return ResultUtils.success(parse(json, CanSendInfo.class));
+        CanSendInfo result = oneBotApiService.canSendRecord(botId);
+        return ResultUtils.success(result);
     }
 
     @PostMapping("/sendLike")
