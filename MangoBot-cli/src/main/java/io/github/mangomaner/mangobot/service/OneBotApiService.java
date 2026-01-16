@@ -43,7 +43,7 @@ public class OneBotApiService {
     public String sendPrivateMsg(long botId, long userId, SendMessage message) {
         Map<String, Object> params = new HashMap<>();
         params.put("user_id", userId);
-        params.put("message", message);
+        params.put("message", message.getMessage());
         return callApi(botId, "send_private_msg", params);
     }
 

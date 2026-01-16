@@ -20,8 +20,6 @@ public class ExamplePlugin implements Plugin {
     private static final Logger logger = Logger.getLogger("123");
     private AnnotationConfigApplicationContext applicationContext;
 
-
-
     public ExamplePlugin() {
 
     }
@@ -62,6 +60,4 @@ public class ExamplePlugin implements Plugin {
     public String hello() {
         return "Hello World!";
     }
-
-
 }

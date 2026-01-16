@@ -56,16 +56,4 @@ public abstract class MessageEvent extends BaseEvent {
         private String title;
     }
 
-    public String getPlainText() {
-        if (message == null) {
-            return "";
-        }
-        StringBuilder sb = new StringBuilder();
-        for (MessageSegment segment : message) {
-            if ("text".equals(segment.getType()) && segment instanceof TextSegment textSegment) {
-                sb.append((textSegment).getText());
-            }
-        }
-        return sb.toString();
-    }
 }

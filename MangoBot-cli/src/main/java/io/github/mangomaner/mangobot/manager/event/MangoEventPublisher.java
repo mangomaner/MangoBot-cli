@@ -3,7 +3,9 @@ package io.github.mangomaner.mangobot.manager.event;
 import io.github.mangomaner.mangobot.annotation.MangoBot;
 import io.github.mangomaner.mangobot.annotation.messageHandler.MangoBotEventListener;
 import io.github.mangomaner.mangobot.annotation.PluginPriority;
+import io.github.mangomaner.mangobot.handler.MessageHandler;
 import io.github.mangomaner.mangobot.model.onebot.event.Event;
+import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider;
@@ -20,10 +22,18 @@ import java.util.concurrent.TimeUnit;
 @Component
 @Slf4j
 public class MangoEventPublisher {
-
     private final Map<Class<?>, List<ListenerMethod>> listenerCache = new ConcurrentHashMap<>();
-    private final Map<Class<?>, Object> handlerInstances = new ConcurrentHashMap<>();
     private ThreadPoolExecutor executor = new ThreadPoolExecutor(1, 10, 1000, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(), new ThreadPoolExecutor.CallerRunsPolicy());
+
+    public MangoEventPublisher(MessageHandler messageHandler) {
+        // 用于注册 MessageHandler
+        Class<?> clazz = MessageHandler.class;
+        for (Method method : clazz.getDeclaredMethods()) {
+            if (method.isAnnotationPresent(MangoBotEventListener.class)) {
+                registerListener(method, messageHandler);
+            }
+        }
+    }
 
     /**
      * 注册监听器

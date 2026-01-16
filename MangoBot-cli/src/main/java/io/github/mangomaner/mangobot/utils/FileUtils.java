@@ -7,78 +7,23 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
-import java.nio.file.StandardOpenOption;
+import java.nio.file.*;
 import java.util.Collections;
 import java.util.Map;
 
+/**
+ * 通用文件操作工具类
+ * <p>
+ * 提供基于应用根目录的文件读写、创建、资源复制等功能，
+ * 并包含路径安全校验机制。
+ */
 public class FileUtils {
 
     private static final Object WRITE_LOCK = new Object();
 
-    /**
-     * 校验路径安全性，防止路径穿越
-     */
-    private static void validatePath(String relativePath) {
-        if (relativePath == null || relativePath.isEmpty()) {
-            throw new IllegalArgumentException("Path must not be null or empty");
-        }
-        // 防止路径穿越 (简单的字符串检查)
-        if (relativePath.contains("..")) {
-            throw new SecurityException("Invalid path: " + relativePath + " contains illegal characters");
-        }
-    }
-
-    /**
-     * 读取base路径下某个文件的内容（若不存在则先创建再读取）
-     */
-    public static String readFileContent(String relativePath) {
-        validatePath(relativePath);
-        File file = ensureFileExists(relativePath);
-        try {
-            return Files.readString(file.toPath(), StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to read file: " + file.getAbsolutePath(), e);
-        }
-    }
-
-    /**
-     * 写入内容到base路径下的某个文件（加sync锁）
-     */
-    public static void writeFileContent(String relativePath, String content) {
-        validatePath(relativePath);
-        synchronized (WRITE_LOCK) {
-            File file = ensureFileExists(relativePath);
-            try {
-                Files.writeString(file.toPath(), content, StandardCharsets.UTF_8,
-                        StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-            } catch (IOException e) {
-                throw new RuntimeException("Failed to write to file: " + file.getAbsolutePath(), e);
-            }
-        }
-    }
-
-    /**
-     * 读取base路径下application.yml文件的内容，返回key-value格式的map
-     */
-    public static Map<String, Object> readApplicationYml() {
-        String relativePath = "application.yml";
-        // 这里不强制创建，如果不存在则返回空Map
-        Path ymlPath = getBaseDirectory().resolve(relativePath);
-        if (!Files.exists(ymlPath)) {
-            return Collections.emptyMap();
-        }
-
-        try (InputStream in = Files.newInputStream(ymlPath)) {
-            Yaml yaml = new Yaml();
-            return yaml.load(in);
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to read application.yml", e);
-        }
-    }
+    // ========================================================================
+    // 基准目录
+    // ========================================================================
 
     /**
      * 获取基准目录：
@@ -92,60 +37,169 @@ public class FileUtils {
         if (source.isFile() && source.getName().toLowerCase().endsWith(".jar")) {
             return source.toPath().getParent(); // JAR 同级目录
         } else {
-            // 开发模式：user.dir 的父目录
-            return Paths.get(System.getProperty("user.dir")).getParent();
+            // 开发模式：user.dir 的目录
+            return Paths.get(System.getProperty("user.dir"));
         }
     }
 
     /**
-     * 确保目录存在，不存在则创建
+     * 解析相对于基准目录的路径，并进行安全校验（防止路径穿越）
+     *
+     * @param relativePath 相对路径
+     * @return 解析后的绝对路径
      */
-    public static File ensureDirectoryExists(String relativePath) {
-        validatePath(relativePath);
-        Path dir = getBaseDirectory().resolve(relativePath);
+    public static Path resolvePath(String relativePath) {
+        return resolvePath(getBaseDirectory(), relativePath);
+    }
+
+    /**
+     * 解析相对于指定根目录的路径，并进行安全校验
+     *
+     * @param root         根目录
+     * @param relativePath 相对路径
+     * @return 解析后的绝对路径
+     */
+    public static Path resolvePath(Path root, String relativePath) {
+        if (root == null) {
+            throw new IllegalArgumentException("Root path must not be null");
+        }
+        if (relativePath == null || relativePath.isEmpty()) {
+            return root;
+        }
+        Path resolved = root.resolve(relativePath).normalize();
+        if (!resolved.startsWith(root)) {
+            throw new SecurityException("Invalid path: " + relativePath + " traverses out of root: " + root);
+        }
+        return resolved;
+    }
+
+    // ========================================================================
+    // 读取文件
+    // ========================================================================
+
+    /**
+     * 读取文件内容为字符串
+     */
+    public static String readString(Path path) {
+        if (!Files.exists(path)) {
+            throw new RuntimeException("File not found: " + path.toAbsolutePath());
+        }
         try {
-            Files.createDirectories(dir);
+            return Files.readString(path, StandardCharsets.UTF_8);
         } catch (IOException e) {
-            throw new RuntimeException("Failed to ensure directory exists: " + dir.toAbsolutePath(), e);
+            throw new RuntimeException("Failed to read file: " + path.toAbsolutePath(), e);
         }
-        return dir.toFile();
+    }
+
+    public static String readString(String relativePath) {
+        return readString(resolvePath(relativePath));
     }
 
     /**
-     * 确保文件存在，不存在则创建
+     * 读取YAML文件
      */
-    public static File ensureFileExists(String relativePath) {
-        validatePath(relativePath);
-        Path filePath = getBaseDirectory().resolve(relativePath);
+    public static Map<String, Object> readYaml(String relativePath) {
+        Path path = resolvePath(relativePath);
+        if (!Files.exists(path)) {
+            return Collections.emptyMap();
+        }
+        try (InputStream in = Files.newInputStream(path)) {
+            Yaml yaml = new Yaml();
+            return yaml.load(in);
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to read YAML file: " + path.toAbsolutePath(), e);
+        }
+    }
+
+    // ========================================================================
+    // 写文件
+    // ========================================================================
+
+    /**
+     * 写入字符串到文件（覆盖模式，线程安全）
+     */
+    public static void writeString(Path path, String content) {
+        synchronized (WRITE_LOCK) {
+            createFile(path); // Ensure file and parent dirs exist
+            try {
+                Files.writeString(path, content, StandardCharsets.UTF_8,
+                        StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            } catch (IOException e) {
+                throw new RuntimeException("Failed to write to file: " + path.toAbsolutePath(), e);
+            }
+        }
+    }
+
+    public static void writeString(String relativePath, String content) {
+        writeString(resolvePath(relativePath), content);
+    }
+
+    // ========================================================================
+    // 创建文件
+    // ========================================================================
+
+    /**
+     * 确保文件存在（如果不存在则创建，包括父目录）
+     */
+    public static File createFile(Path path) {
         try {
-            Path parent = filePath.getParent();
+            if (Files.exists(path)) {
+                return path.toFile();
+            }
+            createParentDirectories(path);
+            Files.createFile(path);
+            return path.toFile();
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to create file: " + path.toAbsolutePath(), e);
+        }
+    }
+
+    public static File createFile(String relativePath) {
+        return createFile(resolvePath(relativePath));
+    }
+
+    /**
+     * 确保目录存在
+     */
+    public static File createDirectory(Path path) {
+        try {
+            if (!Files.exists(path)) {
+                Files.createDirectories(path);
+            }
+            return path.toFile();
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to create directory: " + path.toAbsolutePath(), e);
+        }
+    }
+
+    public static File createDirectory(String relativePath) {
+        return createDirectory(resolvePath(relativePath));
+    }
+
+    /**
+     * 创建父目录
+     */
+    public static void createParentDirectories(Path path) {
+        try {
+            Path parent = path.getParent();
             if (parent != null) {
                 Files.createDirectories(parent);
             }
-            if (!Files.exists(filePath)) {
-                Files.createFile(filePath);
-            }
         } catch (IOException e) {
-            throw new RuntimeException("Failed to ensure file exists: " + filePath.toAbsolutePath(), e);
+            throw new RuntimeException("Failed to create parent directories for: " + path.toAbsolutePath(), e);
         }
-        return filePath.toFile();
     }
 
-    /**
-     * 将类路径下的资源复制到指定路径下
-     * @param resourcePath 类路径下的资源路径
-     * @param relativePath 相对路径
-     * @return 目标文件
-     */
-    public static File copyResourceAsFile(String resourcePath, String relativePath) {
-        if (resourcePath == null || resourcePath.isEmpty()) {
-            throw new IllegalArgumentException("resourcePath must not be null or empty");
-        }
-        validatePath(relativePath);
+    // ========================================================================
+    // 将jar包内resources的资源文件复制到目标文件
+    // ========================================================================
 
-        Path target = getBaseDirectory().resolve(relativePath);
-        if (Files.exists(target)) {
-            return target.toFile();
+    /**
+     * 将Classpath下的资源复制到文件系统
+     */
+    public static File copyResource(String resourcePath, Path targetPath) {
+        if (Files.exists(targetPath)) {
+            return targetPath.toFile();
         }
 
         ClassLoader loader = Thread.currentThread().getContextClassLoader();
@@ -157,16 +211,15 @@ public class FileUtils {
             if (in == null) {
                 throw new RuntimeException("Classpath resource not found: " + resourcePath);
             }
-            Path parent = target.getParent();
-            if (parent != null) {
-                Files.createDirectories(parent);
-            }
-            Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
-            return target.toFile();
+            createParentDirectories(targetPath);
+            Files.copy(in, targetPath, StandardCopyOption.REPLACE_EXISTING);
+            return targetPath.toFile();
         } catch (IOException e) {
-            throw new RuntimeException(
-                    "Failed to copy resource '" + resourcePath + "' to: " + target.toAbsolutePath(), e
-            );
+            throw new RuntimeException("Failed to copy resource '" + resourcePath + "' to: " + targetPath.toAbsolutePath(), e);
         }
+    }
+
+    public static File copyResource(String resourcePath, String relativePath) {
+        return copyResource(resourcePath, resolvePath(relativePath));
     }
 }

@@ -29,10 +29,11 @@
             <version>1.18.30</version>
             <scope>provided</scope>
         </dependency>
+        <!-- 核心 Spring Boot 功能（自动配置、日志、YAML 等） -->
         <dependency>
-            <groupId>org.springframework</groupId>
-            <artifactId>spring-context</artifactId>
-            <version>6.1.2</version>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter</artifactId>
+            <version>3.3.12</version>
         </dependency>
     </dependencies>
 
