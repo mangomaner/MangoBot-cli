@@ -1,5 +1,6 @@
 package io.github.mangomaner.mangobot.plugin.example;
 
+import io.github.mangomaner.mangobot.annotation.MangoBotApiService;
 import io.github.mangomaner.mangobot.annotation.PluginDescribe;
 import io.github.mangomaner.mangobot.annotation.PluginPriority;
 import io.github.mangomaner.mangobot.annotation.messageHandler.MangoBotEventListener;
@@ -8,6 +9,7 @@ import io.github.mangomaner.mangobot.annotation.web.MangoRequestMethod;
 import io.github.mangomaner.mangobot.model.onebot.event.message.GroupMessageEvent;
 import io.github.mangomaner.mangobot.plugin.Plugin;
 import io.github.mangomaner.mangobot.plugin.PluginContext;
+import io.github.mangomaner.mangobot.service.OneBotApiService;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
 import java.util.logging.Logger;
@@ -20,17 +22,18 @@ public class ExamplePlugin implements Plugin {
     private static final Logger logger = Logger.getLogger("123");
     private AnnotationConfigApplicationContext applicationContext;
 
+    @MangoBotApiService
+    private OneBotApiService oneBotApiService;
+
     public ExamplePlugin() {
 
     }
 
     @Override
-    public void onEnable(PluginContext context) {
+    public void onEnable() {
         applicationContext = new AnnotationConfigApplicationContext();
         // 扫描org.mango包
         applicationContext.scan("io.github.mangomaner.mangobot.plugin.example");
-        // 将PluginContext注册为Bean，方便其他组件注入
-        applicationContext.registerBean(PluginContext.class, () -> context);
         applicationContext.refresh();
 
         String[] beanNames = applicationContext.getBeanDefinitionNames();

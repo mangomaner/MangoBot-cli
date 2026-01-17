@@ -1,6 +1,7 @@
 package io.github.mangomaner.mangobot.plugin;
 
 import io.github.mangomaner.mangobot.annotation.MangoBot;
+import io.github.mangomaner.mangobot.annotation.MangoBotApiService;
 import io.github.mangomaner.mangobot.annotation.PluginDescribe;
 import io.github.mangomaner.mangobot.annotation.web.MangoBotRequestMapping;
 import io.github.mangomaner.mangobot.manager.event.MangoEventPublisher;
@@ -16,6 +17,7 @@ import org.springframework.stereotype.Component;
 
 import java.io.File;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.jar.JarEntry;
@@ -165,23 +167,19 @@ public class PluginManager {
                                     Plugin plugin = (Plugin) instance;
                                     wrapper.setPluginInstance(plugin);
 
-                                    PluginContext context = new PluginContext(applicationContext, oneBotApiService);
+                                    pluginRegistrar.injectApiServices(clazz, instance); // 注入 OneBotApiService
+                                    pluginRegistrar.registerEventListeners(clazz, instance, wrapper); // 注册事件监听器
 
-                                    pluginRegistrar.registerEventListeners(clazz, instance, wrapper);
-
-                                    plugin.onEnable(context);
+                                    plugin.onEnable();
                                     log.info("已加载插件主类: {}", clazz.getName());
 
                                 } catch (ReflectiveOperationException e) {
-                                    log.warn("加载或初始化类 {} 失败", className, e);
+                                    log.error("加载或初始化类 {} 失败", className, e);
                                 }
                             }
                         } catch (Throwable e) {
-                            if (e instanceof NoClassDefFoundError) {
-                                log.debug("跳过无法加载的类 {}: {}", className, e.toString());
-                            } else {
-                                log.warn("加载类 {} 失败: {}", className, e.toString());
-                            }
+                            log.error("加载类 {} 失败: {}", className, e.toString());
+                            throw new RuntimeException("加载类" + className + "失败: ");
                         }
                     }
                 }

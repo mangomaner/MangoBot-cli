@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS files
             unique,
     url            TEXT,
     file_path      TEXT,                    -- 文件相对路径
-    image_sub_type INTEGER,                 -- 图片子类型
+    sub_type       INTEGER,                 -- 图片子类型
     file_size      INTEGER,
     description    TEXT,                    -- 文件描述
     create_time    INTEGER default (strftime('%s', 'now') * 1000)

@@ -10,7 +10,7 @@
             <result property="fileId" column="file_id" jdbcType="VARCHAR"/>
             <result property="url" column="url" jdbcType="VARCHAR"/>
             <result property="filePath" column="file_path" jdbcType="VARCHAR"/>
-            <result property="imageSubType" column="image_sub_type" jdbcType="INTEGER"/>
+            <result property="subType" column="sub_type" jdbcType="INTEGER"/>
             <result property="fileSize" column="file_size" jdbcType="INTEGER"/>
             <result property="description" column="description" jdbcType="VARCHAR"/>
             <result property="createTime" column="create_time" jdbcType="BIGINT"/>
@@ -18,7 +18,7 @@
 
     <sql id="Base_Column_List">
         id,file_type,file_id,
-        url,file_path,image_sub_type,
+        url,file_path,sub_type,
         file_size,description,create_time
     </sql>
 </mapper>

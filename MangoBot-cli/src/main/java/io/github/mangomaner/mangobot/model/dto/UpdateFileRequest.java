@@ -21,8 +21,8 @@ public class UpdateFileRequest {
     @Schema(description = "文件相对路径")
     private String filePath;
 
-    @Schema(description = "图片子类型")
-    private Integer imageSubType;
+    @Schema(description = "文件子类型")
+    private Integer subType;
 
     @Schema(description = "文件大小")
     private Integer fileSize;

@@ -51,7 +51,7 @@ public class FilesServiceImpl extends ServiceImpl<FilesMapper, Files>
         files.setFileId(request.getFileId());
         files.setUrl(request.getUrl());
         files.setFilePath(request.getFilePath());
-        files.setImageSubType(request.getImageSubType());
+        files.setSubType(request.getSubType());
         files.setFileSize(request.getFileSize());
         files.setDescription(request.getDescription());
         files.setCreateTime(System.currentTimeMillis());
@@ -73,8 +73,8 @@ public class FilesServiceImpl extends ServiceImpl<FilesMapper, Files>
         if (request.getFilePath() != null) {
             files.setFilePath(request.getFilePath());
         }
-        if (request.getImageSubType() != null) {
-            files.setImageSubType(request.getImageSubType());
+        if (request.getSubType() != null) {
+            files.setSubType(request.getSubType());
         }
         if (request.getFileSize() != null) {
             files.setFileSize(request.getFileSize());

@@ -43,7 +43,7 @@ public class Files implements Serializable {
     /**
      * 
      */
-    private Integer imageSubType;
+    private Integer subType;
 
     /**
      * 
@@ -80,7 +80,7 @@ public class Files implements Serializable {
             && (this.getFileId() == null ? other.getFileId() == null : this.getFileId().equals(other.getFileId()))
             && (this.getUrl() == null ? other.getUrl() == null : this.getUrl().equals(other.getUrl()))
             && (this.getFilePath() == null ? other.getFilePath() == null : this.getFilePath().equals(other.getFilePath()))
-            && (this.getImageSubType() == null ? other.getImageSubType() == null : this.getImageSubType().equals(other.getImageSubType()))
+            && (this.getSubType() == null ? other.getSubType() == null : this.getSubType().equals(other.getSubType()))
             && (this.getFileSize() == null ? other.getFileSize() == null : this.getFileSize().equals(other.getFileSize()))
             && (this.getCreateTime() == null ? other.getCreateTime() == null : this.getCreateTime().equals(other.getCreateTime()));
     }
@@ -94,7 +94,7 @@ public class Files implements Serializable {
         result = prime * result + ((getFileId() == null) ? 0 : getFileId().hashCode());
         result = prime * result + ((getUrl() == null) ? 0 : getUrl().hashCode());
         result = prime * result + ((getFilePath() == null) ? 0 : getFilePath().hashCode());
-        result = prime * result + ((getImageSubType() == null) ? 0 : getImageSubType().hashCode());
+        result = prime * result + ((getSubType() == null) ? 0 : getSubType().hashCode());
         result = prime * result + ((getFileSize() == null) ? 0 : getFileSize().hashCode());
         result = prime * result + ((getCreateTime() == null) ? 0 : getCreateTime().hashCode());
         return result;
@@ -111,7 +111,7 @@ public class Files implements Serializable {
         sb.append(", fileId=").append(fileId);
         sb.append(", url=").append(url);
         sb.append(", filePath=").append(filePath);
-        sb.append(", imageSubType=").append(imageSubType);
+        sb.append(", imageSubType=").append(subType);
         sb.append(", fileSize=").append(fileSize);
         sb.append(", createTime=").append(createTime);
         sb.append(", serialVersionUID=").append(serialVersionUID);
