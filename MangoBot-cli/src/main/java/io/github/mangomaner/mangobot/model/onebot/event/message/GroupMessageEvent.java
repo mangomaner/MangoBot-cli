@@ -17,4 +17,6 @@ public class GroupMessageEvent extends MessageEvent {
 
     @JsonProperty("group_name")
     private String groupName;
+
+    private String parsedMessage;
 }

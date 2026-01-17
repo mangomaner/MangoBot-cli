@@ -16,17 +16,17 @@ public class GroupMessages implements Serializable {
      * 
      */
     @TableId(type = IdType.AUTO)
-    private Integer id;
+    private Long id;
 
     /**
      * 
      */
-    private Integer botId;
+    private Long botId;
 
     /**
      * 
      */
-    private Integer groupId;
+    private Long groupId;
 
     /**
      * 
@@ -36,7 +36,7 @@ public class GroupMessages implements Serializable {
     /**
      * 
      */
-    private Integer senderId;
+    private Long senderId;
 
     /**
      * 
@@ -46,7 +46,7 @@ public class GroupMessages implements Serializable {
     /**
      * 
      */
-    private Integer messageTime;
+    private Long messageTime;
 
     @TableLogic
     private Integer isDelete;

@@ -12,6 +12,8 @@ import io.github.mangomaner.mangobot.model.dto.message.UpdateMessageRequest;
 import io.github.mangomaner.mangobot.model.onebot.event.message.GroupMessageEvent;
 import io.github.mangomaner.mangobot.service.GroupMessagesService;
 import io.github.mangomaner.mangobot.mapper.GroupMessagesMapper;
+import io.github.mangomaner.mangobot.utils.MessageParser;
+import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -81,13 +83,13 @@ public class GroupMessagesServiceImpl extends ServiceImpl<GroupMessagesMapper, G
     public GroupMessages addGroupMessage(GroupMessageEvent event) {
         try {
             GroupMessages groupMessages = new GroupMessages();
-            groupMessages.setBotId((int) event.getSelfId());
-            groupMessages.setGroupId((int) event.getGroupId());
+            groupMessages.setBotId(event.getSelfId());
+            groupMessages.setGroupId(event.getGroupId());
             groupMessages.setMessageId(event.getMessageId());
-            groupMessages.setSenderId((int) event.getUserId());
+            groupMessages.setSenderId(event.getUserId());
             groupMessages.setMessageSegments(objectMapper.writeValueAsString(event.getMessage()));
-            groupMessages.setMessageTime((int) (System.currentTimeMillis()));
-            groupMessages.setParseMessage(event.getRawMessage());
+            groupMessages.setMessageTime(event.getTime() * 1000L);
+            groupMessages.setParseMessage(event.getParsedMessage());
             this.save(groupMessages);
             return groupMessages;
         } catch (Exception e) {

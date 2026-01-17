@@ -3,15 +3,13 @@ package io.github.mangomaner.mangobot.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.mangomaner.mangobot.mapper.PrivateMessagesMapper;
 import io.github.mangomaner.mangobot.model.domain.PrivateMessages;
-import io.github.mangomaner.mangobot.model.dto.message.QueryLatestMessagesRequest;
-import io.github.mangomaner.mangobot.model.dto.message.QueryMessagesByMessageIdRequest;
-import io.github.mangomaner.mangobot.model.dto.message.QueryMessagesBySenderRequest;
-import io.github.mangomaner.mangobot.model.dto.message.SearchMessagesRequest;
-import io.github.mangomaner.mangobot.model.dto.message.UpdateMessageRequest;
+import io.github.mangomaner.mangobot.model.dto.message.*;
 import io.github.mangomaner.mangobot.model.onebot.event.message.PrivateMessageEvent;
 import io.github.mangomaner.mangobot.service.PrivateMessagesService;
-import io.github.mangomaner.mangobot.mapper.PrivateMessagesMapper;
+import io.github.mangomaner.mangobot.utils.MessageParser;
+import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -81,13 +79,13 @@ public class PrivateMessagesServiceImpl extends ServiceImpl<PrivateMessagesMappe
     public PrivateMessages addPrivateMessage(PrivateMessageEvent event) {
         try {
             PrivateMessages privateMessages = new PrivateMessages();
-            privateMessages.setBotId((int) event.getSelfId());
-            privateMessages.setFriendId((int) event.getUserId());
+            privateMessages.setBotId(event.getSelfId());
+            privateMessages.setFriendId(event.getUserId());
             privateMessages.setMessageId(event.getMessageId());
-            privateMessages.setSenderId((int) event.getUserId());
+            privateMessages.setSenderId(event.getUserId());
             privateMessages.setMessageSegments(objectMapper.writeValueAsString(event.getMessage()));
-            privateMessages.setMessageTime((int) (System.currentTimeMillis()));
-            privateMessages.setParseMessage(event.getRawMessage());
+            privateMessages.setMessageTime(event.getTime() * 1000L);
+            privateMessages.setParseMessage(event.getParsedMessage());
             this.save(privateMessages);
             return privateMessages;
         } catch (Exception e) {

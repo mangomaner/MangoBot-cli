@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS private_messages(
         constraint private_messages_pk
             primary key autoincrement,
     bot_id           INTEGER                                        not null,
-    friend_id         INTEGER                                        not null,
+    friend_id        INTEGER                                        not null,
     message_id       INTEGER,
     sender_id        INTEGER,
     message_segments TEXT,                                                      -- 消息段
@@ -85,3 +85,22 @@ CREATE INDEX IF NOT EXISTS idx_private_messages_bot_group_time
 -- message_id 索引（用于快速查单条消息）
 CREATE INDEX IF NOT EXISTS private_messages_message_id_index
     ON private_messages (message_id);
+
+
+CREATE TABLE IF NOT EXISTS files
+(
+    id             INTEGER not null
+        constraint files_pk
+            primary key autoincrement,
+    file_type      TEXT,                    -- 文件类型
+    file_id        TEXT    not null         -- 文件ID
+        constraint files_pk_2
+            unique,
+    url            TEXT,
+    file_path      TEXT,                    -- 文件相对路径
+    image_sub_type INTEGER,                 -- 图片子类型
+    file_size      INTEGER,
+    description    TEXT,                    -- 文件描述
+    create_time    INTEGER default (strftime('%s', 'now') * 1000)
+);
+

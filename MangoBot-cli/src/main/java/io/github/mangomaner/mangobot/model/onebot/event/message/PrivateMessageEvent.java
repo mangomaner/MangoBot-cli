@@ -12,4 +12,5 @@ import io.github.mangomaner.mangobot.model.onebot.event.MessageEvent;
 @JsonTypeName("private")
 public class PrivateMessageEvent extends MessageEvent {
     // Private message specific fields if any
+    private String parsedMessage;
 }

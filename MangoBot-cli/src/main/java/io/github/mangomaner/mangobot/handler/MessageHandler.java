@@ -6,22 +6,43 @@ import io.github.mangomaner.mangobot.annotation.PluginPriority;
 import io.github.mangomaner.mangobot.model.onebot.event.MessageEvent;
 import io.github.mangomaner.mangobot.model.onebot.event.message.GroupMessageEvent;
 import io.github.mangomaner.mangobot.model.onebot.event.message.PrivateMessageEvent;
+import io.github.mangomaner.mangobot.service.GroupMessagesService;
+import io.github.mangomaner.mangobot.service.PrivateMessagesService;
+import io.github.mangomaner.mangobot.utils.MessageParser;
+import jakarta.annotation.Resource;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 @Component
+@Slf4j
 public class MessageHandler {
+
+    @Resource
+    private GroupMessagesService groupMessagesService;
+
+    @Resource
+    private PrivateMessagesService privateMessagesService;
+
+    @Resource
+    private MessageParser messageParser;
 
     @MangoBotEventListener
     @PluginPriority(-1)
     public boolean onGroupMessage(GroupMessageEvent event) {
-        System.out.println("收到消息: " + event.getMessage());
+        log.info("收到消息: " + event.getMessage());
+        String parseMessage = messageParser.parseMessage(event.getMessage());
+        event.setParsedMessage(parseMessage);
+        groupMessagesService.addGroupMessage(event);
         return true;
     }
 
     @MangoBotEventListener
     @PluginPriority(-1)
     public boolean onPrivateMessage(PrivateMessageEvent event) {
-        System.out.println("收到消息: " + event.getMessage());
+        log.info("收到消息: " + event.getMessage());
+        String parseMessage = messageParser.parseMessage(event.getMessage());
+        event.setParsedMessage(parseMessage);
+        privateMessagesService.addPrivateMessage(event);
         return true;
     }
 }
