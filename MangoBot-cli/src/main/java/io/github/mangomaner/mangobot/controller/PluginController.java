@@ -4,6 +4,7 @@ import io.github.mangomaner.mangobot.common.BaseResponse;
 import io.github.mangomaner.mangobot.common.ResultUtils;
 import io.github.mangomaner.mangobot.model.plugin.PluginInfo;
 import io.github.mangomaner.mangobot.plugin.PluginManager;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;

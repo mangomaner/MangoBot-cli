@@ -16,7 +16,6 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/test")
-@Tag(name = "OneBot API 测试接口", description = "用于测试 OneBotApiService 的各项功能")
 @Slf4j
 public class ApiTestController {
 
