@@ -8,6 +8,10 @@ import lombok.EqualsAndHashCode;
 import lombok.ToString;
 import io.github.mangomaner.mangobot.model.onebot.event.NoticeEvent;
 
+
+/**
+ * 群成员减少
+ */
 @Data
 @EqualsAndHashCode(callSuper = true)
 @ToString(callSuper = true)

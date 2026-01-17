@@ -1,8 +1,8 @@
 package io.github.mangomaner.mangobot.service;
 
 import io.github.mangomaner.mangobot.model.domain.MangobotConfig;
-import io.github.mangomaner.mangobot.model.dto.UpdateConfigByKeyRequest;
-import io.github.mangomaner.mangobot.model.dto.UpdateConfigRequest;
+import io.github.mangomaner.mangobot.model.dto.config.UpdateConfigByKeyRequest;
+import io.github.mangomaner.mangobot.model.dto.config.UpdateConfigRequest;
 import io.github.mangomaner.mangobot.model.vo.ConfigVO;
 import com.baomidou.mybatisplus.extension.service.IService;
 

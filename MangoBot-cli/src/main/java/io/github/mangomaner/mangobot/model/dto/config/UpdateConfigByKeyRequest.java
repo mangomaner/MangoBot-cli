@@ -1,4 +1,4 @@
-package io.github.mangomaner.mangobot.model.dto;
+package io.github.mangomaner.mangobot.model.dto.config;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;

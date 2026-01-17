@@ -32,8 +32,56 @@ INSERT INTO mangobot_config (config_key, config_value, config_type, description,
 
     -- 主项目普通配置
     ('main.QQ.test', '好好好', 'STRING', '测试配置', '', 'normal', 1),
-    ('main.QQ.test', '["小","中","大"]', 'SELECT', '测试配置', '', 'normal', 1),
+    ('main.QQ.select', '["小","中","大"]', 'SELECT', '测试配置', '', 'normal', 1),
 
     -- 插件配置
-    ('plugin.example.test', '{}', 'JSON', '测试用', '测试', 'example', 1)
-    ;
+    ('plugin.example.test', '{}', 'JSON', '测试用', '测试', 'example', 1);
+
+
+CREATE TABLE IF NOT EXISTS group_messages
+(
+    id               INTEGER                                        not null
+        constraint group_messages_pk
+            primary key autoincrement,
+    bot_id           INTEGER                                        not null,
+    group_id         INTEGER                                        not null,
+    message_id       INTEGER,
+    sender_id        INTEGER,
+    message_segments TEXT,                                                      -- 消息段
+    message_time     INTEGER default (strftime('%s', 'now') * 1000) not null,
+    is_delete        INTEGER DEFAULT 0,
+    -- 上方是消息原始内容，以下为加工后的内容
+    parse_message    TEXT                                                       -- 解析后的自然语言消息（供参考）
+);
+
+-- 创建联合索引：bot_id → group_id → message_time，模仿使用者视角构建B树，用于快速检索
+CREATE INDEX IF NOT EXISTS idx_group_messages_bot_group_time
+    ON group_messages (bot_id, group_id, message_time);
+
+-- message_id 索引（用于快速查单条消息）
+CREATE INDEX IF NOT EXISTS group_messages_message_id_index
+    ON group_messages (message_id);
+
+
+CREATE TABLE IF NOT EXISTS private_messages(
+    id               INTEGER                                        not null
+        constraint private_messages_pk
+            primary key autoincrement,
+    bot_id           INTEGER                                        not null,
+    friend_id         INTEGER                                        not null,
+    message_id       INTEGER,
+    sender_id        INTEGER,
+    message_segments TEXT,                                                      -- 消息段
+    message_time     INTEGER default (strftime('%s', 'now') * 1000) not null,
+    is_delete        INTEGER DEFAULT 0,
+    -- 上方是消息原始内容，以下为加工后的内容
+    parse_message    TEXT                                                       -- 解析后的自然语言消息（供参考）
+);
+
+-- 创建联合索引：bot_id → friend_id → message_time，模仿使用者视角构建B树，用于快速检索
+CREATE INDEX IF NOT EXISTS idx_private_messages_bot_group_time
+    ON private_messages (bot_id, friend_id, message_time);
+
+-- message_id 索引（用于快速查单条消息）
+CREATE INDEX IF NOT EXISTS private_messages_message_id_index
+    ON private_messages (message_id);
