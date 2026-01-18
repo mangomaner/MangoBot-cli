@@ -10,9 +10,9 @@ public class QueryLatestMessagesRequest {
 
     @Schema(description = "Bot ID")
     @NotNull(message = "Bot ID不能为空")
-    private Integer botId;
+    private Long botId;
 
     @Schema(description = "群组ID或好友ID")
     @NotNull(message = "群组ID或好友ID不能为空")
-    private Integer targetId;
+    private Long targetId;
 }

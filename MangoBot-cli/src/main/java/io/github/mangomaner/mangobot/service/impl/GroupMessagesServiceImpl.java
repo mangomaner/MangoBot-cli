@@ -20,7 +20,6 @@ import io.github.mangomaner.mangobot.utils.MessageParser;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -160,15 +159,9 @@ public class GroupMessagesServiceImpl extends ServiceImpl<GroupMessagesMapper, G
 
     @Override
     public List<GroupMessageVO> convertToVOList(List<GroupMessages> messages) {
-        List<GroupMessageVO> vos = new ArrayList<>();
-        for(GroupMessages message : messages) {
-            convertToVO(message);
-            vos.add(convertToVO(message));
-        }
-        return vos;
-//        return messages.stream()
-//                .map(this::convertToVO)
-//                .collect(Collectors.toList());
+        return messages.stream()
+                .map(this::convertToVO)
+                .collect(Collectors.toList());
     }
 
     @Override

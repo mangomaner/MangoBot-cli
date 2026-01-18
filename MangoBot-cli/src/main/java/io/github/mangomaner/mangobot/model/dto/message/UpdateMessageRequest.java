@@ -10,7 +10,7 @@ public class UpdateMessageRequest {
 
     @Schema(description = "消息ID")
     @NotNull(message = "消息ID不能为空")
-    private Integer id;
+    private Long id;
 
     @Schema(description = "消息段")
     private String messageSegments;

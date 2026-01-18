@@ -10,9 +10,9 @@ public class QueryMessagesBySenderRequest {
 
     @Schema(description = "Bot ID")
     @NotNull(message = "Bot ID不能为空")
-    private Integer botId;
+    private Long botId;
 
     @Schema(description = "发送者ID")
     @NotNull(message = "发送者ID不能为空")
-    private Integer senderId;
+    private Long senderId;
 }
