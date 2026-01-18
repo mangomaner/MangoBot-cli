@@ -5,7 +5,6 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.mangomaner.mangobot.model.domain.GroupMessages;
-import io.github.mangomaner.mangobot.model.dto.AddFileRequest;
 import io.github.mangomaner.mangobot.model.dto.message.QueryLatestMessagesRequest;
 import io.github.mangomaner.mangobot.model.dto.message.QueryMessagesByMessageIdRequest;
 import io.github.mangomaner.mangobot.model.dto.message.QueryMessagesBySenderRequest;
@@ -14,14 +13,14 @@ import io.github.mangomaner.mangobot.model.dto.message.UpdateMessageRequest;
 import io.github.mangomaner.mangobot.model.onebot.event.message.GroupMessageEvent;
 import io.github.mangomaner.mangobot.model.onebot.segment.*;
 import io.github.mangomaner.mangobot.model.vo.GroupMessageVO;
-import io.github.mangomaner.mangobot.service.FilesService;
+import io.github.mangomaner.mangobot.service.BotFilesService;
 import io.github.mangomaner.mangobot.service.GroupMessagesService;
 import io.github.mangomaner.mangobot.mapper.GroupMessagesMapper;
 import io.github.mangomaner.mangobot.utils.MessageParser;
 import jakarta.annotation.Resource;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -41,7 +40,7 @@ public class GroupMessagesServiceImpl extends ServiceImpl<GroupMessagesMapper, G
     private MessageParser messageParser;
 
     @Resource
-    private FilesService filesService;
+    private BotFilesService filesService;
 
     @Override
     public List<GroupMessages> getLatestMessages(QueryLatestMessagesRequest request) {
@@ -161,9 +160,15 @@ public class GroupMessagesServiceImpl extends ServiceImpl<GroupMessagesMapper, G
 
     @Override
     public List<GroupMessageVO> convertToVOList(List<GroupMessages> messages) {
-        return messages.stream()
-                .map(this::convertToVO)
-                .collect(Collectors.toList());
+        List<GroupMessageVO> vos = new ArrayList<>();
+        for(GroupMessages message : messages) {
+            convertToVO(message);
+            vos.add(convertToVO(message));
+        }
+        return vos;
+//        return messages.stream()
+//                .map(this::convertToVO)
+//                .collect(Collectors.toList());
     }
 
     @Override

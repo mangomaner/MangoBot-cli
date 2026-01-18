@@ -1,5 +1,6 @@
 package io.github.mangomaner.mangobot.config;
 
+
 import io.github.mangomaner.mangobot.utils.FileUtils;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.jdbc.DataSourceBuilder;

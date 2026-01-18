@@ -1,6 +1,6 @@
 package io.github.mangomaner.mangobot.mapper;
 
-import io.github.mangomaner.mangobot.model.domain.Files;
+import io.github.mangomaner.mangobot.model.domain.BotFiles;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 
 /**
@@ -9,7 +9,7 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 * @createDate 2026-01-17 23:40:10
 * @Entity generator.domain.Files
 */
-public interface FilesMapper extends BaseMapper<Files> {
+public interface BotFilesMapper extends BaseMapper<BotFiles> {
 
 }
 

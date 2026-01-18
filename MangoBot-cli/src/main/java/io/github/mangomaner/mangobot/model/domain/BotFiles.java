@@ -11,9 +11,9 @@ import lombok.Data;
  * 
  * @TableName files
  */
-@TableName(value ="files")
+@TableName(value ="bot_files")
 @Data
-public class Files implements Serializable {
+public class BotFiles implements Serializable {
     /**
      * 
      */
@@ -74,7 +74,7 @@ public class Files implements Serializable {
         if (getClass() != that.getClass()) {
             return false;
         }
-        Files other = (Files) that;
+        BotFiles other = (BotFiles) that;
         return (this.getId() == null ? other.getId() == null : this.getId().equals(other.getId()))
             && (this.getFileType() == null ? other.getFileType() == null : this.getFileType().equals(other.getFileType()))
             && (this.getFileId() == null ? other.getFileId() == null : this.getFileId().equals(other.getFileId()))

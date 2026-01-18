@@ -6,6 +6,10 @@ import org.yaml.snakeyaml.Yaml;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.Collections;
@@ -49,6 +53,9 @@ public class FileUtils {
      * @return 解析后的绝对路径
      */
     public static Path resolvePath(String relativePath) {
+        if (relativePath != null && !relativePath.isEmpty() && relativePath.charAt(0) == '/') {
+            relativePath = relativePath.substring(1);
+        }
         return resolvePath(getBaseDirectory(), relativePath);
     }
 
@@ -221,5 +228,43 @@ public class FileUtils {
 
     public static File copyResource(String resourcePath, String relativePath) {
         return copyResource(resourcePath, resolvePath(relativePath));
+    }
+
+    // ========================================================================
+    // 下载文件
+    // ========================================================================
+
+    /**
+     * 从URL下载文件到指定路径
+     *
+     * @param url         文件URL
+     * @param targetPath  目标路径
+     * @return 下载的文件
+     */
+    public static File downloadFile(String url, Path targetPath) {
+        try {
+            HttpClient client = HttpClient.newHttpClient();
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .GET()
+                    .build();
+
+            HttpResponse<InputStream> response = client.send(request,
+                    HttpResponse.BodyHandlers.ofInputStream());
+
+            if (response.statusCode() != 200) {
+                throw new RuntimeException("Failed to download file from URL: " + url + ", status code: " + response.statusCode());
+            }
+
+            createParentDirectories(targetPath);
+            Files.copy(response.body(), targetPath, StandardCopyOption.REPLACE_EXISTING);
+            return targetPath.toFile();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to download file from URL: " + url + " to: " + targetPath.toAbsolutePath(), e);
+        }
+    }
+
+    public static File downloadFile(String url, String relativePath) {
+        return downloadFile(url, resolvePath(relativePath));
     }
 }

@@ -1,10 +1,8 @@
 package io.github.mangomaner.mangobot.controller;
 
-import io.github.mangomaner.mangobot.service.FilesService;
 import io.github.mangomaner.mangobot.service.GroupMessagesService;
 import io.github.mangomaner.mangobot.service.PrivateMessagesService;
 import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import io.github.mangomaner.mangobot.common.BaseResponse;
@@ -16,7 +14,6 @@ import io.github.mangomaner.mangobot.service.OneBotApiService;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.Map;
 
 @RestController
 @RequestMapping("/api/test")

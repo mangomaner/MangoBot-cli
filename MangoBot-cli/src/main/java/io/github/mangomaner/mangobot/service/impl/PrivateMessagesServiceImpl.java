@@ -10,7 +10,7 @@ import io.github.mangomaner.mangobot.model.dto.message.*;
 import io.github.mangomaner.mangobot.model.onebot.event.message.PrivateMessageEvent;
 import io.github.mangomaner.mangobot.model.onebot.segment.MessageSegment;
 import io.github.mangomaner.mangobot.model.vo.PrivateMessageVO;
-import io.github.mangomaner.mangobot.service.FilesService;
+import io.github.mangomaner.mangobot.service.BotFilesService;
 import io.github.mangomaner.mangobot.service.PrivateMessagesService;
 import io.github.mangomaner.mangobot.utils.MessageParser;
 import jakarta.annotation.Resource;
@@ -32,7 +32,7 @@ public class PrivateMessagesServiceImpl extends ServiceImpl<PrivateMessagesMappe
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Resource
-    private FilesService filesService;
+    private BotFilesService filesService;
 
     @Resource
     private MessageParser messageParser;

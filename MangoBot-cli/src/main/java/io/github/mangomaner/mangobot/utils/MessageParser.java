@@ -1,21 +1,15 @@
 package io.github.mangomaner.mangobot.utils;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.github.mangomaner.mangobot.model.dto.AddFileRequest;
-import io.github.mangomaner.mangobot.model.onebot.event.Event;
-import io.github.mangomaner.mangobot.model.onebot.event.EventParser;
 import io.github.mangomaner.mangobot.model.onebot.event.message.GroupMessageEvent;
 import io.github.mangomaner.mangobot.model.onebot.segment.*;
-import io.github.mangomaner.mangobot.service.FilesService;
 import io.github.mangomaner.mangobot.service.OneBotApiService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
-import java.util.Map;
 
 @Slf4j
 @Component
@@ -62,6 +56,8 @@ public class MessageParser {
                     return parseRecordSegment((RecordSegment) segment);
                 case "forward":
                     return parseForwardSegment((ForwardSegment) segment, botId);
+                case "reply":
+                    return parseReplySegment((ReplySegment) segment, botId);
                 default:
                     log.warn("Unknown message segment type: {}", type);
                     return "";
@@ -70,6 +66,11 @@ public class MessageParser {
             log.error("Failed to parse message segment: {}", segment, e);
             return "";
         }
+    }
+
+    private String parseReplySegment(ReplySegment segment, Long botId) {
+        ReplySegment.ReplyData data = segment.getData();
+        return "回复：" + oneBotApiService.getMsg(botId, Integer.parseInt(data.getId()));
     }
 
     private String parseTextSegment(TextSegment segment) {

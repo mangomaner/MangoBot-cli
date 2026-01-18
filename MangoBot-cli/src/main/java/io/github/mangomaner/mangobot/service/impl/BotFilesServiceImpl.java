@@ -2,14 +2,17 @@ package io.github.mangomaner.mangobot.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import io.github.mangomaner.mangobot.model.domain.Files;
+import io.github.mangomaner.mangobot.model.domain.BotFiles;
 import io.github.mangomaner.mangobot.model.dto.AddFileRequest;
 import io.github.mangomaner.mangobot.model.dto.UpdateFileRequest;
 import io.github.mangomaner.mangobot.model.onebot.segment.*;
-import io.github.mangomaner.mangobot.service.FilesService;
-import io.github.mangomaner.mangobot.mapper.FilesMapper;
+import io.github.mangomaner.mangobot.service.BotFilesService;
+import io.github.mangomaner.mangobot.mapper.BotFilesMapper;
+import io.github.mangomaner.mangobot.utils.FileUtils;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.nio.file.Path;
 import java.util.List;
 
 /**
@@ -18,30 +21,31 @@ import java.util.List;
 * @createDate 2026-01-17 23:40:10
 */
 @Service
-public class FilesServiceImpl extends ServiceImpl<FilesMapper, Files>
-    implements FilesService {
+@Slf4j
+public class BotFilesServiceImpl extends ServiceImpl<BotFilesMapper, BotFiles>
+    implements BotFilesService {
 
     @Override
-    public List<Files> getAllFiles() {
+    public List<BotFiles> getAllFiles() {
         return this.list();
     }
 
     @Override
-    public Files getFileById(Long id) {
+    public BotFiles getFileById(Long id) {
         return this.getById(id);
     }
 
     @Override
-    public Files getFileByFileId(String fileId) {
-        LambdaQueryWrapper<Files> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(Files::getFileId, fileId);
+    public BotFiles getFileByFileId(String fileId) {
+        LambdaQueryWrapper<BotFiles> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(BotFiles::getFileId, fileId);
         return this.getOne(wrapper);
     }
 
     @Override
-    public List<Files> getFilesByType(String fileType) {
-        LambdaQueryWrapper<Files> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(Files::getFileType, fileType);
+    public List<BotFiles> getFilesByType(String fileType) {
+        LambdaQueryWrapper<BotFiles> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(BotFiles::getFileType, fileType);
         return this.list(wrapper);
     }
 
@@ -50,7 +54,7 @@ public class FilesServiceImpl extends ServiceImpl<FilesMapper, Files>
         if (this.getFileByFileId(request.getFileId()) != null) {
             return false;
         }
-        Files files = new Files();
+        BotFiles files = new BotFiles();
         files.setFileType(request.getFileType());
         files.setFileId(request.getFileId());
         files.setUrl(request.getUrl());
@@ -64,7 +68,7 @@ public class FilesServiceImpl extends ServiceImpl<FilesMapper, Files>
 
     @Override
     public Boolean updateFile(UpdateFileRequest request) {
-        Files files = this.getById(request.getId());
+        BotFiles files = this.getById(request.getId());
         if (files == null) {
             return false;
         }
@@ -96,8 +100,8 @@ public class FilesServiceImpl extends ServiceImpl<FilesMapper, Files>
 
     @Override
     public Boolean deleteFileByFileId(String fileId) {
-        LambdaQueryWrapper<Files> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(Files::getFileId, fileId);
+        LambdaQueryWrapper<BotFiles> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(BotFiles::getFileId, fileId);
         return this.remove(wrapper);
     }
 
@@ -124,18 +128,38 @@ public class FilesServiceImpl extends ServiceImpl<FilesMapper, Files>
 
                 int subType = data.getSubType();
                 String url = data.getUrl();
+                String fileId = data.getFile();
                 AddFileRequest request = new AddFileRequest();
-                request.setFileId(data.getFile());
+                request.setFileId(fileId);
                 request.setUrl(url);
                 request.setSubType(subType);
                 request.setFileSize(Integer.parseInt(data.getFileSize()));
+
+                String fileType;
+                String targetDir;
                 switch (subType) {
-                    case 0 ->                           // 发送的手机图片，0为普通图片
-                            request.setFileType("image");
-                    case 1, 11 ->                       // 1为QQ收藏的表情包，11为发送的gif图片
-                            request.setFileType("meme");
-                    default -> request.setFileType("image");
+                    case 1, 11 -> {
+                        fileType = "meme";
+                        targetDir = "data/meme";
+                    }
+                    default -> {
+                        fileType = "image";
+                        targetDir = "data/image";
+                    }
                 }
+
+                request.setFileType(fileType);
+
+                try {
+                    String filePath = targetDir + "/" + fileId;
+                    Path targetPath = FileUtils.resolvePath(filePath);
+                    FileUtils.downloadFile(url, targetPath);
+                    request.setFilePath(filePath);
+                    log.info("Downloaded image: fileId={}, subType={}, url={}, filePath={}", fileId, subType, url, filePath);
+                } catch (Exception e) {
+                    log.error("Failed to download image: fileId={}, subType={}, url={}", fileId, subType, url, e);
+                }
+
                 this.addFile(request);
             } else if (segment instanceof VideoSegment) {
                 VideoSegment.VideoData data = ((VideoSegment) segment).getData();

@@ -87,7 +87,7 @@ CREATE INDEX IF NOT EXISTS private_messages_message_id_index
     ON private_messages (message_id);
 
 
-CREATE TABLE IF NOT EXISTS files
+CREATE TABLE IF NOT EXISTS bot_files
 (
     id             INTEGER not null
         constraint files_pk
