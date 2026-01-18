@@ -4,6 +4,7 @@ import io.github.mangomaner.mangobot.model.domain.Files;
 import io.github.mangomaner.mangobot.model.dto.AddFileRequest;
 import io.github.mangomaner.mangobot.model.dto.UpdateFileRequest;
 import com.baomidou.mybatisplus.extension.service.IService;
+import io.github.mangomaner.mangobot.model.onebot.segment.MessageSegment;
 
 import java.util.List;
 
@@ -29,4 +30,6 @@ public interface FilesService extends IService<Files> {
     Boolean deleteFile(Long id);
 
     Boolean deleteFileByFileId(String fileId);
+
+    void saveFileBySegments(List<MessageSegment> segments);
 }

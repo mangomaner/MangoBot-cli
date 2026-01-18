@@ -1,7 +1,11 @@
 package io.github.mangomaner.mangobot.controller;
 
+import io.github.mangomaner.mangobot.service.FilesService;
+import io.github.mangomaner.mangobot.service.GroupMessagesService;
+import io.github.mangomaner.mangobot.service.PrivateMessagesService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import io.github.mangomaner.mangobot.common.BaseResponse;
 import io.github.mangomaner.mangobot.common.ResultUtils;
@@ -21,17 +25,37 @@ public class ApiTestController {
 
     private final OneBotApiService oneBotApiService;
 
+    @Resource
+    private GroupMessagesService groupMessagesService;
+
+    @Resource
+    private PrivateMessagesService privateMessagesService;
+
     public ApiTestController(OneBotApiService oneBotApiService) {
         this.oneBotApiService = oneBotApiService;
     }
 
-    @GetMapping("/aaa")
-    @Operation(summary = "测试 aaa")
-    public BaseResponse<MessageId> aaa() {
-        SendMessage builder = MessageBuilder.create()
-                .text("哈哈")
+    @PostMapping("/sendPrivateMsg")
+    @Operation(summary = "发送私聊消息")
+    public BaseResponse<MessageId> sendPrivateMsg(@RequestParam long botId, @RequestParam long userId, @RequestParam String message) {
+        log.info("测试发送私聊消息: botId={}, userId={}, message={}", botId, userId, message);
+        SendMessage sendMessage = MessageBuilder.create()
+                .text(message)
                 .build();
-        MessageId result = oneBotApiService.sendGroupMsg(1461626638, 220264051, builder);
+        MessageId result = oneBotApiService.sendPrivateMsg(botId, userId, sendMessage);
+        privateMessagesService.addPrivateMessage(sendMessage.getMessage(), botId, userId, result.getMessageId());
+        return ResultUtils.success(result);
+    }
+
+    @PostMapping("/sendGroupMsg")
+    @Operation(summary = "发送群消息")
+    public BaseResponse<MessageId> sendGroupMsg(@RequestParam long botId, @RequestParam long groupId, @RequestParam String message) {
+        log.info("测试发送群消息: botId={}, groupId={}, message={}", botId, groupId, message);
+        SendMessage sendMessage = MessageBuilder.create()
+                .text(message)
+                .build();
+        MessageId result = oneBotApiService.sendGroupMsg(botId, groupId, sendMessage);
+        groupMessagesService.addGroupMessage(sendMessage.getMessage(), botId, groupId, result.getMessageId());
         return ResultUtils.success(result);
     }
 
@@ -49,27 +73,7 @@ public class ApiTestController {
         return ResultUtils.success(result);
     }
 
-    @PostMapping("/sendPrivateMsg")
-    @Operation(summary = "发送私聊消息")
-    public BaseResponse<MessageId> sendPrivateMsg(@RequestParam long botId, @RequestParam long userId, @RequestParam String message) {
-        log.info("测试发送私聊消息: botId={}, userId={}, message={}", botId, userId, message);
-        SendMessage sendMessage = MessageBuilder.create()
-                .text(message)
-                .build();
-        MessageId result = oneBotApiService.sendPrivateMsg(botId, userId, sendMessage);
-        return ResultUtils.success(result);
-    }
 
-    @PostMapping("/sendGroupMsg")
-    @Operation(summary = "发送群消息")
-    public BaseResponse<MessageId> sendGroupMsg(@RequestParam long botId, @RequestParam long groupId, @RequestParam String message) {
-        log.info("测试发送群消息: botId={}, groupId={}, message={}", botId, groupId, message);
-        SendMessage sendMessage = MessageBuilder.create()
-                .text(message)
-                .build();
-        MessageId result = oneBotApiService.sendGroupMsg(botId, groupId, sendMessage);
-        return ResultUtils.success(result);
-    }
 
     @PostMapping("/sendComplexGroupMsg")
     @Operation(summary = "发送复杂群消息 (Text + At + Image)")
@@ -103,12 +107,6 @@ public class ApiTestController {
         return ResultUtils.success(result);
     }
 
-    @PostMapping("/sendMsg")
-    @Operation(summary = "发送消息 (通用)")
-    public BaseResponse<MessageId> sendMsg(@RequestParam long botId, @RequestParam String messageType, @RequestParam(required = false) Long userId, @RequestParam(required = false) Long groupId, @RequestParam String message) {
-        MessageId result = oneBotApiService.sendMsg(botId, messageType, userId, groupId, message);
-        return ResultUtils.success(result);
-    }
 
     @GetMapping("/getMsg")
     @Operation(summary = "获取消息")

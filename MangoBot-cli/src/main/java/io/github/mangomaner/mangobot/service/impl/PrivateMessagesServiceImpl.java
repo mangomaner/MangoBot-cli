@@ -2,17 +2,22 @@ package io.github.mangomaner.mangobot.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.mangomaner.mangobot.mapper.PrivateMessagesMapper;
 import io.github.mangomaner.mangobot.model.domain.PrivateMessages;
 import io.github.mangomaner.mangobot.model.dto.message.*;
 import io.github.mangomaner.mangobot.model.onebot.event.message.PrivateMessageEvent;
+import io.github.mangomaner.mangobot.model.onebot.segment.MessageSegment;
+import io.github.mangomaner.mangobot.model.vo.PrivateMessageVO;
+import io.github.mangomaner.mangobot.service.FilesService;
 import io.github.mangomaner.mangobot.service.PrivateMessagesService;
 import io.github.mangomaner.mangobot.utils.MessageParser;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
 * @author mangoman
@@ -25,6 +30,12 @@ public class PrivateMessagesServiceImpl extends ServiceImpl<PrivateMessagesMappe
 
     private static final int PAGE_SIZE = 25;
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Resource
+    private FilesService filesService;
+
+    @Resource
+    private MessageParser messageParser;
 
     @Override
     public List<PrivateMessages> getLatestMessages(QueryLatestMessagesRequest request) {
@@ -87,9 +98,33 @@ public class PrivateMessagesServiceImpl extends ServiceImpl<PrivateMessagesMappe
             privateMessages.setMessageTime(event.getTime() * 1000L);
             privateMessages.setParseMessage(event.getParsedMessage());
             this.save(privateMessages);
+
+            filesService.saveFileBySegments(event.getMessage());
+
             return privateMessages;
         } catch (Exception e) {
             throw new RuntimeException("Failed to add private message", e);
+        }
+    }
+
+    @Override
+    public PrivateMessages addPrivateMessage(List<MessageSegment> segments, Long botId, Long friendId, Integer messageId) {
+        try {
+            PrivateMessages privateMessages = new PrivateMessages();
+            privateMessages.setBotId(botId);
+            privateMessages.setFriendId(friendId);
+            privateMessages.setMessageId(messageId);
+            privateMessages.setSenderId(botId);
+            privateMessages.setMessageSegments(objectMapper.writeValueAsString(segments));
+            privateMessages.setMessageTime(System.currentTimeMillis());
+            privateMessages.setParseMessage(messageParser.parseMessage(segments, botId));
+            this.save(privateMessages);
+
+            filesService.saveFileBySegments(segments);
+
+            return privateMessages;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to add group message", e);
         }
     }
 
@@ -116,6 +151,41 @@ public class PrivateMessagesServiceImpl extends ServiceImpl<PrivateMessagesMappe
             message.setParseMessage(request.getParseMessage());
         }
         return this.updateById(message);
+    }
+
+    @Override
+    public List<PrivateMessageVO> convertToVOList(List<PrivateMessages> messages) {
+        return messages.stream()
+                .map(this::convertToVO)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public PrivateMessageVO convertToVO(PrivateMessages message) {
+        if (message == null) {
+            return null;
+        }
+        PrivateMessageVO vo = new PrivateMessageVO();
+        vo.setId(message.getId());
+        vo.setBotId(message.getBotId());
+        vo.setFriendId(message.getFriendId());
+        vo.setMessageId(message.getMessageId());
+        vo.setSenderId(message.getSenderId());
+        vo.setMessageTime(message.getMessageTime());
+        vo.setIsDelete(message.getIsDelete());
+        vo.setParseMessage(message.getParseMessage());
+        
+        try {
+            List<MessageSegment> segments = objectMapper.readValue(
+                message.getMessageSegments(),
+                new TypeReference<List<MessageSegment>>() {}
+            );
+            vo.setMessageSegments(segments);
+        } catch (Exception e) {
+            vo.setMessageSegments(null);
+        }
+        
+        return vo;
     }
 }
 

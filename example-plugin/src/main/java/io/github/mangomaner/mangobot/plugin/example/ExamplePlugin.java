@@ -8,7 +8,6 @@ import io.github.mangomaner.mangobot.annotation.web.MangoBotRequestMapping;
 import io.github.mangomaner.mangobot.annotation.web.MangoRequestMethod;
 import io.github.mangomaner.mangobot.model.onebot.event.message.GroupMessageEvent;
 import io.github.mangomaner.mangobot.plugin.Plugin;
-import io.github.mangomaner.mangobot.plugin.PluginContext;
 import io.github.mangomaner.mangobot.service.OneBotApiService;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 

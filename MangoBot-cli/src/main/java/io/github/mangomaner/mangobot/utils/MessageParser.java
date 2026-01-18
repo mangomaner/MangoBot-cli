@@ -1,8 +1,16 @@
 package io.github.mangomaner.mangobot.utils;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.mangomaner.mangobot.model.dto.AddFileRequest;
+import io.github.mangomaner.mangobot.model.onebot.event.Event;
+import io.github.mangomaner.mangobot.model.onebot.event.EventParser;
+import io.github.mangomaner.mangobot.model.onebot.event.message.GroupMessageEvent;
 import io.github.mangomaner.mangobot.model.onebot.segment.*;
+import io.github.mangomaner.mangobot.service.FilesService;
+import io.github.mangomaner.mangobot.service.OneBotApiService;
+import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -14,15 +22,17 @@ import java.util.Map;
 public class MessageParser {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+    @Resource
+    private OneBotApiService oneBotApiService;
 
-    public String parseMessage(List<MessageSegment> segments) {
+    public String parseMessage(List<MessageSegment> segments, Long botId) {
         if (segments == null || segments.isEmpty()) {
             return "";
         }
 
         StringBuilder result = new StringBuilder();
         for (MessageSegment segment : segments) {
-            String parsed = parseSegment(segment);
+            String parsed = parseSegment(segment, botId);
             if (parsed != null && !parsed.isEmpty()) {
                 result.append(parsed);
             }
@@ -30,7 +40,7 @@ public class MessageParser {
         return result.toString();
     }
 
-    private String parseSegment(MessageSegment segment) {
+    private String parseSegment(MessageSegment segment, Long botId) {
         try {
             String type = segment.getType();
             switch (type) {
@@ -51,7 +61,7 @@ public class MessageParser {
                 case "record":
                     return parseRecordSegment((RecordSegment) segment);
                 case "forward":
-                    return parseForwardSegment((ForwardSegment) segment);
+                    return parseForwardSegment((ForwardSegment) segment, botId);
                 default:
                     log.warn("Unknown message segment type: {}", type);
                     return "";
@@ -88,12 +98,12 @@ public class MessageParser {
         String id = data.getId();
         
         if (subType == 3 && "343".equals(id)) {
-            return "发送害怕的表情";
+            return "害怕的表情";
         }
         if (subType == 3 && "319".equals(id)) {
-            return "发送比心的表情";
+            return "比心的表情";
         }
-        return "发送表情[" + id + "]";
+        return "表情[" + id + "]";
     }
 
     private String parseFileSegment(FileSegment segment) {
@@ -101,11 +111,11 @@ public class MessageParser {
         if (data == null) {
             return "";
         }
-        String url = data.getUrl();
-        if (url != null && !url.isEmpty()) {
-            return "发送文件：" + url;
+        String file = data.getFile();
+        if (file != null && !file.isEmpty()) {
+            return "文件：" + file;
         }
-        return "发送文件";
+        return "文件";
     }
 
     private String parseImageSegment(ImageSegment segment) {
@@ -115,18 +125,22 @@ public class MessageParser {
         }
         int subType = data.getSubType();
         String url = data.getUrl();
-        
-        if (subType == 1) {
-            if (url != null && !url.isEmpty()) {
-                return "发送表情：" + url;
+
+        return switch (subType) {
+            case 0 -> {         // 发送的手机图片，0为普通图片
+                if (url != null && !url.isEmpty()) {
+                    yield "图片：" + url;
+                }
+                yield "图片";
             }
-            return "发送表情";
-        } else {
-            if (url != null && !url.isEmpty()) {
-                return "发送图片：" + url;
+            case 1, 11 -> {             // 1为QQ收藏的表情包，11为发送的gif图片
+                if (url != null && !url.isEmpty()) {
+                    yield "表情：" + url;
+                }
+                yield "表情";
             }
-            return "发送图片";
-        }
+            default -> "图片";
+        };
     }
 
     private String parseJsonSegment(JsonSegment segment) {
@@ -142,9 +156,14 @@ public class MessageParser {
         try {
             JsonNode jsonNode = objectMapper.readTree(jsonStr);
             StringBuilder result = new StringBuilder();
-            jsonNode.fields().forEachRemaining(entry -> {
-                result.append(entry.getKey()).append(":").append(entry.getValue().asText()).append(" ");
-            });
+            if(jsonNode.has("prompt")){
+                result.append(jsonNode.get("prompt").asText()).append(" ");
+            } else {
+                jsonNode.fields().forEachRemaining(entry -> {
+                    result.append(entry.getKey()).append(":").append(entry.getValue().asText()).append(" ");
+                });
+            }
+
             return result.toString();
         } catch (Exception e) {
             log.error("Failed to parse JSON segment: {}", jsonStr, e);
@@ -154,14 +173,16 @@ public class MessageParser {
 
     private String parseVideoSegment(VideoSegment segment) {
         VideoSegment.VideoData data = segment.getData();
+
         if (data == null) {
             return "";
         }
         String url = data.getUrl();
+
         if (url != null && !url.isEmpty()) {
-            return "发送视频：" + url;
+            return "视频：" + url;
         }
-        return "发送视频";
+        return "视频";
     }
 
     private String parseRecordSegment(RecordSegment segment) {
@@ -170,21 +191,42 @@ public class MessageParser {
             return "";
         }
         String url = data.getUrl();
+
         if (url != null && !url.isEmpty()) {
-            return "发送语音：" + url;
+            return "语音：" + url;
         }
-        return "发送语音";
+        return "语音";
     }
 
-    private String parseForwardSegment(ForwardSegment segment) {
+    private String parseForwardSegment(ForwardSegment segment, Long botId) {
         ForwardSegment.ForwardData data = segment.getData();
         if (data == null) {
             return "";
         }
         String id = data.getId();
+
         if (id == null || id.isEmpty()) {
             return "转发消息";
         }
-        return "转发消息：[合并转发消息 ID=" + id + "]";
+
+        List<GroupMessageEvent> event = null;
+        event = oneBotApiService.getForwardMsg(botId, id);
+
+        if (event == null || event.isEmpty()) {
+            return "转发消息：[合并转发消息 ID=" + id + "]";
+        }
+
+        StringBuilder sb = new StringBuilder();
+        for (GroupMessageEvent e : event) {
+            String message = parseMessage(e.getMessage(), botId);
+            sb.append(e.getSender().getNickname()).append("发送消息：").append(message).append("\n");
+        }
+        String result = sb.toString();
+
+        if(!result.isEmpty()){
+            return "转发消息：\n" + result;
+        } else {
+            return "转发消息：[合并转发消息 ID=" + id + "]";
+        }
     }
 }

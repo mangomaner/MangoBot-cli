@@ -7,6 +7,8 @@ import io.github.mangomaner.mangobot.model.dto.message.QueryMessagesBySenderRequ
 import io.github.mangomaner.mangobot.model.dto.message.SearchMessagesRequest;
 import io.github.mangomaner.mangobot.model.dto.message.UpdateMessageRequest;
 import io.github.mangomaner.mangobot.model.onebot.event.message.GroupMessageEvent;
+import io.github.mangomaner.mangobot.model.onebot.segment.MessageSegment;
+import io.github.mangomaner.mangobot.model.vo.GroupMessageVO;
 import com.baomidou.mybatisplus.extension.service.IService;
 
 import java.util.List;
@@ -30,7 +32,13 @@ public interface GroupMessagesService extends IService<GroupMessages> {
 
     GroupMessages addGroupMessage(GroupMessageEvent event);
 
+    GroupMessages addGroupMessage(List<MessageSegment> segments, Long botId, Long groupId, Integer messageId);
+
     Boolean deleteMessage(Integer id);
 
     Boolean updateMessage(UpdateMessageRequest request);
+
+    List<GroupMessageVO> convertToVOList(List<GroupMessages> messages);
+
+    GroupMessageVO convertToVO(GroupMessages message);
 }

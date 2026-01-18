@@ -2,21 +2,28 @@ package io.github.mangomaner.mangobot.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.mangomaner.mangobot.model.domain.GroupMessages;
+import io.github.mangomaner.mangobot.model.dto.AddFileRequest;
 import io.github.mangomaner.mangobot.model.dto.message.QueryLatestMessagesRequest;
 import io.github.mangomaner.mangobot.model.dto.message.QueryMessagesByMessageIdRequest;
 import io.github.mangomaner.mangobot.model.dto.message.QueryMessagesBySenderRequest;
 import io.github.mangomaner.mangobot.model.dto.message.SearchMessagesRequest;
 import io.github.mangomaner.mangobot.model.dto.message.UpdateMessageRequest;
 import io.github.mangomaner.mangobot.model.onebot.event.message.GroupMessageEvent;
+import io.github.mangomaner.mangobot.model.onebot.segment.*;
+import io.github.mangomaner.mangobot.model.vo.GroupMessageVO;
+import io.github.mangomaner.mangobot.service.FilesService;
 import io.github.mangomaner.mangobot.service.GroupMessagesService;
 import io.github.mangomaner.mangobot.mapper.GroupMessagesMapper;
 import io.github.mangomaner.mangobot.utils.MessageParser;
 import jakarta.annotation.Resource;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
 * @author mangoman
@@ -29,6 +36,12 @@ public class GroupMessagesServiceImpl extends ServiceImpl<GroupMessagesMapper, G
 
     private static final int PAGE_SIZE = 25;
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Resource
+    private MessageParser messageParser;
+
+    @Resource
+    private FilesService filesService;
 
     @Override
     public List<GroupMessages> getLatestMessages(QueryLatestMessagesRequest request) {
@@ -91,6 +104,30 @@ public class GroupMessagesServiceImpl extends ServiceImpl<GroupMessagesMapper, G
             groupMessages.setMessageTime(event.getTime() * 1000L);
             groupMessages.setParseMessage(event.getParsedMessage());
             this.save(groupMessages);
+
+            filesService.saveFileBySegments(event.getMessage());
+
+            return groupMessages;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to add group message", e);
+        }
+    }
+
+    @Override
+    public GroupMessages addGroupMessage(List<MessageSegment> segments, Long botId, Long groupId, Integer messageId) {
+        try {
+            GroupMessages groupMessages = new GroupMessages();
+            groupMessages.setBotId(botId);
+            groupMessages.setGroupId(groupId);
+            groupMessages.setMessageId(messageId);
+            groupMessages.setSenderId(botId);
+            groupMessages.setMessageSegments(objectMapper.writeValueAsString(segments));
+            groupMessages.setMessageTime(System.currentTimeMillis());
+            groupMessages.setParseMessage(messageParser.parseMessage(segments, botId));
+            this.save(groupMessages);
+
+            filesService.saveFileBySegments(segments);
+
             return groupMessages;
         } catch (Exception e) {
             throw new RuntimeException("Failed to add group message", e);
@@ -121,6 +158,42 @@ public class GroupMessagesServiceImpl extends ServiceImpl<GroupMessagesMapper, G
         }
         return this.updateById(message);
     }
+
+    @Override
+    public List<GroupMessageVO> convertToVOList(List<GroupMessages> messages) {
+        return messages.stream()
+                .map(this::convertToVO)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public GroupMessageVO convertToVO(GroupMessages message) {
+        if (message == null) {
+            return null;
+        }
+        GroupMessageVO vo = new GroupMessageVO();
+        vo.setId(message.getId());
+        vo.setBotId(message.getBotId());
+        vo.setGroupId(message.getGroupId());
+        vo.setMessageId(message.getMessageId());
+        vo.setSenderId(message.getSenderId());
+        vo.setMessageTime(message.getMessageTime());
+        vo.setDeleted(message.getIsDelete());
+        vo.setParseMessage(message.getParseMessage());
+        
+        try {
+            List<MessageSegment> segments = objectMapper.readValue(
+                message.getMessageSegments(),
+                new TypeReference<List<MessageSegment>>() {}
+            );
+            vo.setMessageSegments(segments);
+        } catch (Exception e) {
+            vo.setMessageSegments(null);
+        }
+        
+        return vo;
+    }
+
 }
 
 

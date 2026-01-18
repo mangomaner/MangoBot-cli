@@ -7,6 +7,7 @@ import io.github.mangomaner.mangobot.model.dto.message.QueryLatestMessagesReques
 import io.github.mangomaner.mangobot.model.dto.message.QueryMessagesByMessageIdRequest;
 import io.github.mangomaner.mangobot.model.dto.message.QueryMessagesBySenderRequest;
 import io.github.mangomaner.mangobot.model.dto.message.SearchMessagesRequest;
+import io.github.mangomaner.mangobot.model.vo.GroupMessageVO;
 import io.github.mangomaner.mangobot.service.GroupMessagesService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -22,12 +23,29 @@ import java.util.List;
 public class GroupMessageController {
     @Resource
     private GroupMessagesService groupMessagesService;
+
     @GetMapping("/getLatestMessages")
-    public BaseResponse<List<GroupMessages>> getLatestMessages(QueryLatestMessagesRequest request) {
-        return ResultUtils.success(groupMessagesService.getLatestMessages(request));
+    public BaseResponse<List<GroupMessageVO>> getLatestMessages(QueryLatestMessagesRequest request) {
+        return ResultUtils.success(groupMessagesService.convertToVOList(groupMessagesService.getLatestMessages(request)));
     }
+
     @GetMapping("/more/byMessageId")
-    public BaseResponse<List<GroupMessages>> getMoreMessagesByMessageId(QueryMessagesByMessageIdRequest request) {
-        return ResultUtils.success(groupMessagesService.getMessagesByMessageId(request));
+    public BaseResponse<List<GroupMessageVO>> getMoreMessagesByMessageId(QueryMessagesByMessageIdRequest request) {
+        return ResultUtils.success(groupMessagesService.convertToVOList(groupMessagesService.getMessagesByMessageId(request)));
+    }
+
+    @GetMapping("/bySender")
+    public BaseResponse<List<GroupMessageVO>> getMessagesBySender(QueryMessagesBySenderRequest request) {
+        return ResultUtils.success(groupMessagesService.convertToVOList(groupMessagesService.getMessagesBySender(request)));
+    }
+
+    @GetMapping("/search")
+    public BaseResponse<List<GroupMessageVO>> searchMessages(SearchMessagesRequest request) {
+        return ResultUtils.success(groupMessagesService.convertToVOList(groupMessagesService.searchMessages(request)));
+    }
+
+    @GetMapping("/id/{id}")
+    public BaseResponse<GroupMessageVO> getMessageById(Integer id) {
+        return ResultUtils.success(groupMessagesService.convertToVO(groupMessagesService.getMessageById(id)));
     }
 }

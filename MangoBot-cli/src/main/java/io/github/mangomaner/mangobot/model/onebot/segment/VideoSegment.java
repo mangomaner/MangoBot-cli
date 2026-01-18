@@ -1,5 +1,6 @@
 package io.github.mangomaner.mangobot.model.onebot.segment;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
@@ -14,6 +15,7 @@ public class VideoSegment extends MessageSegment{
         private String file;
         private String url;
         private String path;
-        private String file_size;
+        @JsonProperty("file_size")
+        private String fileSize;
     }
 }

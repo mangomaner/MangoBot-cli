@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import io.github.mangomaner.mangobot.model.domain.Files;
 import io.github.mangomaner.mangobot.model.dto.AddFileRequest;
 import io.github.mangomaner.mangobot.model.dto.UpdateFileRequest;
+import io.github.mangomaner.mangobot.model.onebot.segment.*;
 import io.github.mangomaner.mangobot.service.FilesService;
 import io.github.mangomaner.mangobot.mapper.FilesMapper;
 import org.springframework.stereotype.Service;
@@ -46,6 +47,9 @@ public class FilesServiceImpl extends ServiceImpl<FilesMapper, Files>
 
     @Override
     public Boolean addFile(AddFileRequest request) {
+        if (this.getFileByFileId(request.getFileId()) != null) {
+            return false;
+        }
         Files files = new Files();
         files.setFileType(request.getFileType());
         files.setFileId(request.getFileId());
@@ -95,6 +99,60 @@ public class FilesServiceImpl extends ServiceImpl<FilesMapper, Files>
         LambdaQueryWrapper<Files> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(Files::getFileId, fileId);
         return this.remove(wrapper);
+    }
+
+    /**
+     * 保存文件到数据库
+     * @param segments
+     * @return
+     */
+    @Override
+    public void saveFileBySegments(List<MessageSegment> segments) {
+
+        for (MessageSegment segment : segments) {
+            if (segment instanceof FileSegment) {
+                AddFileRequest request = new AddFileRequest();
+                FileSegment.FileData data = ((FileSegment) segment).getData();
+                request.setFileId(data.getFileId());
+                request.setFileType("file");
+                request.setUrl(data.getUrl());
+                request.setFileSize(Integer.parseInt(data.getFileSize()));
+                request.setDescription(data.getFile());
+                this.addFile(request);
+            } else if (segment instanceof ImageSegment) {
+                ImageSegment.ImageData data = ((ImageSegment) segment).getData();
+
+                int subType = data.getSubType();
+                String url = data.getUrl();
+                AddFileRequest request = new AddFileRequest();
+                request.setFileId(data.getFile());
+                request.setUrl(url);
+                request.setSubType(subType);
+                request.setFileSize(Integer.parseInt(data.getFileSize()));
+                switch (subType) {
+                    case 0 ->                           // 发送的手机图片，0为普通图片
+                            request.setFileType("image");
+                    case 1, 11 ->                       // 1为QQ收藏的表情包，11为发送的gif图片
+                            request.setFileType("meme");
+                    default -> request.setFileType("image");
+                }
+                this.addFile(request);
+            } else if (segment instanceof VideoSegment) {
+                VideoSegment.VideoData data = ((VideoSegment) segment).getData();
+                AddFileRequest request = new AddFileRequest();
+                request.setFileId(data.getFile());
+                request.setFileType("video");
+                request.setUrl(data.getUrl());
+                this.addFile(request);
+            } else if (segment instanceof RecordSegment) {
+                RecordSegment.RecordData data = ((RecordSegment) segment).getData();
+                AddFileRequest request = new AddFileRequest();
+                request.setFileId(data.getFile());
+                request.setFileType("record");
+                request.setUrl(data.getUrl());
+                this.addFile(request);
+            }
+        }
     }
 }
 

@@ -7,6 +7,8 @@ import io.github.mangomaner.mangobot.model.dto.message.QueryMessagesBySenderRequ
 import io.github.mangomaner.mangobot.model.dto.message.SearchMessagesRequest;
 import io.github.mangomaner.mangobot.model.dto.message.UpdateMessageRequest;
 import io.github.mangomaner.mangobot.model.onebot.event.message.PrivateMessageEvent;
+import io.github.mangomaner.mangobot.model.onebot.segment.MessageSegment;
+import io.github.mangomaner.mangobot.model.vo.PrivateMessageVO;
 import com.baomidou.mybatisplus.extension.service.IService;
 
 import java.util.List;
@@ -30,7 +32,13 @@ public interface PrivateMessagesService extends IService<PrivateMessages> {
 
     PrivateMessages addPrivateMessage(PrivateMessageEvent event);
 
+    PrivateMessages addPrivateMessage(List<MessageSegment> segments, Long botId, Long friendId, Integer messageId);
+
     Boolean deleteMessage(Integer id);
 
     Boolean updateMessage(UpdateMessageRequest request);
+
+    List<PrivateMessageVO> convertToVOList(List<PrivateMessages> messages);
+
+    PrivateMessageVO convertToVO(PrivateMessages message);
 }

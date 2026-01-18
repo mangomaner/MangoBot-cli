@@ -1,5 +1,6 @@
 package io.github.mangomaner.mangobot.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.type.CollectionType;
 import io.github.mangomaner.mangobot.manager.websocket.BotConnectionManager;
@@ -8,6 +9,9 @@ import io.github.mangomaner.mangobot.model.onebot.SendMessage;
 import io.github.mangomaner.mangobot.model.onebot.api.OneBotApiRequest;
 import io.github.mangomaner.mangobot.model.onebot.api.OneBotApiResponse;
 import io.github.mangomaner.mangobot.model.onebot.api.response.*;
+import io.github.mangomaner.mangobot.model.onebot.event.EventParser;
+import io.github.mangomaner.mangobot.model.onebot.event.message.GroupMessageEvent;
+import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.socket.TextMessage;
@@ -44,6 +48,7 @@ public class OneBotApiService {
         Map<String, Object> params = new HashMap<>();
         params.put("user_id", userId);
         params.put("message", message.getMessage());
+
         return callApi(botId, "send_private_msg", params, MessageId.class);
     }
 
@@ -141,11 +146,26 @@ public class OneBotApiService {
     /**
      * 获取合并转发消息
      */
-    public Map<String, Object> getForwardMsg(long botId, String id) {
+    public List<GroupMessageEvent> getForwardMsg(long botId, String id) {
         Map<String, Object> params = new HashMap<>();
         params.put("id", id);
-        // 暂未明确具体 Model，使用 Map 返回
-        return callApi(botId, "get_forward_msg", params, Map.class);
+        Map<String, Object> apiResult = callApi(botId, "get_forward_msg", params, Map.class);
+        List<Map<String, Object>> result = (List<Map<String, Object>>) apiResult.get("messages");
+
+        List<GroupMessageEvent> resultList = new ArrayList<>();
+        for (Map<String, Object> item : result) {
+            try {
+                Map<String, Object> modifiedItem = new HashMap<>(item);
+                if (modifiedItem.containsKey("content")) {
+                    modifiedItem.put("message", modifiedItem.get("content"));
+                }
+                GroupMessageEvent event = objectMapper.convertValue(modifiedItem, GroupMessageEvent.class);
+                resultList.add(event);
+            } catch (Exception e) {
+                log.error("Failed to parse forward message: {}", item, e);
+            }
+        }
+        return resultList;
     }
 
     /**

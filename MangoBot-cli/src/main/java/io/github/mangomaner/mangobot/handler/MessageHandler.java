@@ -30,7 +30,7 @@ public class MessageHandler {
     @PluginPriority(-1)
     public boolean onGroupMessage(GroupMessageEvent event) {
         log.info("收到消息: " + event.getMessage());
-        String parseMessage = messageParser.parseMessage(event.getMessage());
+        String parseMessage = messageParser.parseMessage(event.getMessage(), event.getSelfId());
         event.setParsedMessage(parseMessage);
         groupMessagesService.addGroupMessage(event);
         return true;
@@ -40,7 +40,7 @@ public class MessageHandler {
     @PluginPriority(-1)
     public boolean onPrivateMessage(PrivateMessageEvent event) {
         log.info("收到消息: " + event.getMessage());
-        String parseMessage = messageParser.parseMessage(event.getMessage());
+        String parseMessage = messageParser.parseMessage(event.getMessage(), event.getSelfId());
         event.setParsedMessage(parseMessage);
         privateMessagesService.addPrivateMessage(event);
         return true;

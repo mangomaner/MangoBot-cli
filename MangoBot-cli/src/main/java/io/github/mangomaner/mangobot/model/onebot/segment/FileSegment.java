@@ -17,6 +17,7 @@ public class FileSegment extends MessageSegment {
         private String url;
         @JsonProperty("file_id")
         private String fileId;
+        private String path;
         @JsonProperty("file_size")
         private String fileSize;
     }

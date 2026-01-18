@@ -34,9 +34,6 @@ public class PluginManager {
     private ConfigurableApplicationContext applicationContext;
 
     @Resource
-    private OneBotApiService oneBotApiService;
-
-    @Resource
     private PluginRegistrar pluginRegistrar;
 
     @Resource
