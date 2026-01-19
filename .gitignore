@@ -4,7 +4,6 @@ target/
 !**/src/main/**/target/
 !**/src/test/**/target/
 
-application-dev.yml
 application-local.yml
 !**/src/main/**/work/
 

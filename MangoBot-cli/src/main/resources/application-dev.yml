@@ -1,0 +1,18 @@
+server:
+  port: 8082
+
+# http://localhost:8082/doc.html#
+knife4j:
+  enable: true
+
+spring:
+  datasource:
+    url: jdbc:sqlite:/not/used # 占位，实际由 Configuration 覆盖
+    driver-class-name: org.sqlite.JDBC
+  sql:
+    init:
+      enabled: false  # 我们自己控制初始化
+
+logging:
+  level:
+    io.github.mangomaner.mangobot: INFO

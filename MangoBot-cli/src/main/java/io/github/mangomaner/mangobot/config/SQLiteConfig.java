@@ -9,6 +9,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.ClassPathResource;
 
 import javax.sql.DataSource;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -53,7 +54,7 @@ public class SQLiteConfig {
         ) {
 
             ClassPathResource resource = new ClassPathResource(SCHEMA_SQL);
-            String sql = new String(resource.getContentAsByteArray());
+            String sql = new String(resource.getContentAsByteArray(), StandardCharsets.UTF_8);
 
             String[] statements = sql.split(";");
             for (String stmt : statements) {

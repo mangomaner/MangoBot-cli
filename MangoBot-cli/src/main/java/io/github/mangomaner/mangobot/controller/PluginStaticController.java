@@ -11,13 +11,14 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.io.IOException;
 import java.net.MalformedURLException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
 @RestController
-@RequestMapping("/static/plugin")
+@RequestMapping("/static")
 public class PluginStaticController {
 
     @GetMapping("/{pluginName}/**")
@@ -26,67 +27,47 @@ public class PluginStaticController {
             HttpServletRequest request) {
 
         try {
-            // 1. 获取请求路径后缀
-            // request.getRequestURI() 返回完整路径，如 /static/plugin/demo/assets/app.js
             String requestUri = request.getRequestURI();
-            // 注意：这里需要解码，防止中文路径问题，但 getRequestURI 通常已解码或未解码，
-            // 若包含 URL 编码字符，可能需要 decode。但在 Spring Boot 中通常可以直接使用。
-            // 简单起见，这里默认无需额外 decode，或者由 Path 处理。
-            
-            String prefix = "/static/plugin/" + pluginName + "/";
+            String prefix = "/static/" + pluginName + "/";
             String relativePath = "";
-            // 防止路径匹配问题
-            int index = requestUri.indexOf(prefix);
-            if (index != -1) {
-                relativePath = requestUri.substring(index + prefix.length());
+
+            if (requestUri.startsWith(prefix)) {
+                relativePath = requestUri.substring(prefix.length());
             }
 
-            // 2. 定位目标文件
-            // 基础目录: base/web
+            // 基础 web 目录
             Path webBaseDir = FileUtils.getBaseDirectory().resolve("web");
-            
+
+            // 安全解析目标文件路径
             Path targetFile;
             try {
-                // 安全解析路径，确保在 webBaseDir 下
-                targetFile = FileUtils.resolvePath(webBaseDir, pluginName + "/" + relativePath);
+                targetFile = FileUtils.resolvePath(webBaseDir, Paths.get(pluginName, relativePath).toString());
             } catch (SecurityException e) {
                 return ResponseEntity.badRequest().build();
             }
 
             Resource resource = null;
+            String contentType = "application/octet-stream";
 
-            // 3. 尝试读取文件
+            // 1. 尝试加载请求的文件
             if (Files.exists(targetFile) && Files.isRegularFile(targetFile)) {
                 resource = new UrlResource(targetFile.toUri());
+                contentType = detectMimeType(targetFile);
             } else {
-                // 4. Fallback 逻辑 (SPA支持)
-                // 如果找不到文件，尝试返回 index.html
+                // 2. Fallback: 加载 index.html（SPA 支持）
                 try {
-                    // index.html 也应该在 pluginName 目录下
                     Path indexFile = FileUtils.resolvePath(webBaseDir, pluginName + "/index.html");
-                    if (Files.exists(indexFile)) {
+                    if (Files.exists(indexFile) && Files.isRegularFile(indexFile)) {
                         resource = new UrlResource(indexFile.toUri());
+                        contentType = "text/html;charset=utf-8"; // 强制 HTML 类型
                     }
                 } catch (SecurityException ignored) {
-                    // 忽略异常，不做 fallback
+                    // 忽略安全异常，不 fallback
                 }
             }
 
             if (resource == null || !resource.exists()) {
                 return ResponseEntity.notFound().build();
-            }
-
-            // 5. 确定 Content-Type
-            String contentType = null;
-            try {
-                Path resourcePath = Paths.get(resource.getURI());
-                contentType = Files.probeContentType(resourcePath);
-            } catch (Exception ignored) {
-            }
-            
-            if (contentType == null) {
-                // 默认类型
-                contentType = "application/octet-stream";
             }
 
             return ResponseEntity.ok()
@@ -96,7 +77,44 @@ public class PluginStaticController {
         } catch (MalformedURLException e) {
             return ResponseEntity.internalServerError().build();
         } catch (Exception e) {
+            // 可选：记录异常日志
+            // e.printStackTrace();
             return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    // MIME 类型探测（优先基于扩展名）
+    private String detectMimeType(Path filePath) {
+        String fileName = filePath.getFileName().toString().toLowerCase();
+
+        if (fileName.endsWith(".html") || fileName.endsWith(".htm")) {
+            return "text/html;charset=utf-8";
+        } else if (fileName.endsWith(".js")) {
+            return "application/javascript";
+        } else if (fileName.endsWith(".css")) {
+            return "text/css";
+        } else if (fileName.endsWith(".png")) {
+            return "image/png";
+        } else if (fileName.endsWith(".jpg") || fileName.endsWith(".jpeg")) {
+            return "image/jpeg";
+        } else if (fileName.endsWith(".svg")) {
+            return "image/svg+xml";
+        } else if (fileName.endsWith(".ico")) {
+            return "image/x-icon";
+        } else if (fileName.endsWith(".json")) {
+            return "application/json";
+        } else if (fileName.endsWith(".txt")) {
+            return "text/plain";
+        } else if (fileName.endsWith(".woff") || fileName.endsWith(".woff2")) {
+            return "font/woff2";
+        }
+
+        // fallback to system probe
+        try {
+            String type = Files.probeContentType(filePath);
+            return (type != null && !type.isBlank()) ? type : "application/octet-stream";
+        } catch (IOException e) {
+            return "application/octet-stream";
         }
     }
 }
