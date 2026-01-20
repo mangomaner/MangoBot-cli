@@ -1,6 +1,9 @@
 package io.github.mangomaner.mangobot.plugin.register;
 
 import io.github.mangomaner.mangobot.annotation.MangoBotApiService;
+import io.github.mangomaner.mangobot.annotation.MangoBotConfig;
+import io.github.mangomaner.mangobot.annotation.MangoBotGroupMessage;
+import io.github.mangomaner.mangobot.annotation.MangoBotPrivateMessage;
 import io.github.mangomaner.mangobot.annotation.messageHandler.MangoBotEventListener;
 import io.github.mangomaner.mangobot.annotation.web.MangoBotRequestMapping;
 import io.github.mangomaner.mangobot.annotation.web.MangoRequestMethod;
@@ -8,7 +11,10 @@ import io.github.mangomaner.mangobot.manager.event.MangoEventPublisher;
 import io.github.mangomaner.mangobot.plugin.PluginRuntimeWrapper;
 import io.github.mangomaner.mangobot.plugin.register.web.MangoArgumentResolvers;
 import io.github.mangomaner.mangobot.plugin.register.web.MangoReturnValueHandler;
+import io.github.mangomaner.mangobot.service.GroupMessagesService;
+import io.github.mangomaner.mangobot.service.MangobotConfigService;
 import io.github.mangomaner.mangobot.service.OneBotApiService;
+import io.github.mangomaner.mangobot.service.PrivateMessagesService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.config.ConfigurableBeanFactory;
@@ -48,6 +54,15 @@ public class PluginRegistrar {
 
     @Resource
     private OneBotApiService oneBotApiService;
+
+    @Resource
+    private MangobotConfigService mangobotConfigService;
+
+    @Resource
+    private GroupMessagesService groupMessagesService;
+
+    @Resource
+    private PrivateMessagesService privateMessagesService;
 
     /**
      * 注册 Web 扩展组件 (ArgumentResolvers, ReturnValueHandlers)
@@ -151,16 +166,25 @@ public class PluginRegistrar {
     /**
      * 注入 API 服务
      */
-    public void injectApiServices(Class<?> clazz, Object instance) {
+    public void injectFields(Class<?> clazz, Object instance) {
         for (Field field : clazz.getDeclaredFields()) {
-            if (field.isAnnotationPresent(MangoBotApiService.class)) {
-                field.setAccessible(true);
-                try {
+            try {
+                if (field.isAnnotationPresent(MangoBotApiService.class)) {
+                    field.setAccessible(true);
                     field.set(instance, oneBotApiService);
-                } catch (IllegalAccessException e) {
-                    log.error("注入 MangoBotApiService 到 {}.{} 失败",
-                            clazz.getSimpleName(), field.getName(), e);
+                } else if (field.isAnnotationPresent(MangoBotConfig.class)) {
+                    field.setAccessible(true);
+                    field.set(instance, mangobotConfigService);
+                } else if (field.isAnnotationPresent(MangoBotGroupMessage.class)) {
+                    field.setAccessible(true);
+                    field.set(instance, groupMessagesService);
+                } else if (field.isAnnotationPresent(MangoBotPrivateMessage.class)) {
+                    field.setAccessible(true);
+                    field.set(instance, privateMessagesService);
                 }
+            }  catch (IllegalAccessException e) {
+            log.error("注入 MangoBotApiService 到 {}.{} 失败",
+                    clazz.getSimpleName(), field.getName(), e);
             }
         }
     }

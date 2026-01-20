@@ -164,7 +164,7 @@ public class PluginManager {
                                     Plugin plugin = (Plugin) instance;
                                     wrapper.setPluginInstance(plugin);
 
-                                    pluginRegistrar.injectApiServices(clazz, instance); // 注入 OneBotApiService
+                                    pluginRegistrar.injectFields(clazz, instance); // 注入 OneBotApiService
                                     pluginRegistrar.registerEventListeners(clazz, instance, wrapper); // 注册事件监听器
 
                                     plugin.onEnable();

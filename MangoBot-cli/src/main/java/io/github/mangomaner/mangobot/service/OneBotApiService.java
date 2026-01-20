@@ -69,11 +69,11 @@ public class OneBotApiService {
      *
      * @return
      */
-    public MessageId sendGroupPoke(long botId, long groupId, long userId) {
+    public Void sendGroupPoke(long botId, long groupId, long userId) {
         Map<String, Object> params = new HashMap<>();
         params.put("group_id", groupId);
         params.put("user_id", userId);
-        return callApi(botId, "group_poke", params, MessageId.class);
+        return callApi(botId, "group_poke", params, Void.class);
     }
 
     /**
@@ -81,10 +81,10 @@ public class OneBotApiService {
      *
      * @return
      */
-    public MessageId sendFriendPoke(long botId, long userId) {
+    public Void sendPrivatePoke(long botId, long userId) {
         Map<String, Object> params = new HashMap<>();
         params.put("user_id", userId);
-        return callApi(botId, "friend_poke", params, MessageId.class);
+        return callApi(botId, "friend_poke", params, Void.class);
     }
 
     /**

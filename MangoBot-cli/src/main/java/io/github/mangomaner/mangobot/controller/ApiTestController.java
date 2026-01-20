@@ -56,6 +56,20 @@ public class ApiTestController {
         return ResultUtils.success(result);
     }
 
+    @GetMapping("/sendGroupPoke")
+    @Operation(summary = "戳一戳 (群聊)")
+    public BaseResponse<Void> sendGroupPoke(@RequestParam long botId, @RequestParam long groupId, @RequestParam long targetId) {
+        oneBotApiService.sendGroupPoke(botId, groupId, targetId);
+        return ResultUtils.success(null);
+    }
+
+    @GetMapping("/sendPrivatePoke")
+    @Operation(summary = "戳一戳 (私聊)")
+    public BaseResponse<Void> sendPrivatePoke(@RequestParam long botId, @RequestParam long friendId) {
+        oneBotApiService.sendPrivatePoke(botId, friendId);
+        return ResultUtils.success(null);
+    }
+
     @PostMapping("/sendGroupForwardMsg")
     @Operation(summary = "发送合并转发消息 (群)")
     public BaseResponse<MessageId> sendGroupForwardMsg(@RequestParam long botId, @RequestParam long groupId, @RequestBody Object messages) {
