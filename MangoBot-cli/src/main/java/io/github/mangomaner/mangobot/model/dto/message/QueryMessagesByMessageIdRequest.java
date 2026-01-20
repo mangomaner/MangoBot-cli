@@ -5,7 +5,7 @@ import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 @Data
-@Schema(description = "根据消息ID查询前25条消息请求")
+@Schema(description = "根据消息ID查询前num条消息请求")
 public class QueryMessagesByMessageIdRequest {
 
     @Schema(description = "Bot ID")
@@ -19,4 +19,7 @@ public class QueryMessagesByMessageIdRequest {
     @Schema(description = "消息ID")
     @NotNull(message = "消息ID不能为空")
     private Integer messageId;
+
+    @Schema(description = "查询数量")
+    private Integer num;
 }

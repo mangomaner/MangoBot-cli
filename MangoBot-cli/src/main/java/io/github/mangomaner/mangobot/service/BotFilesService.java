@@ -17,6 +17,8 @@ public interface BotFilesService extends IService<BotFiles> {
 
     List<BotFiles> getAllFiles();
 
+    List<BotFiles> getFilesByDescription(String description);
+
     BotFiles getFileById(Long id);
 
     BotFiles getFileByFileId(String fileId);

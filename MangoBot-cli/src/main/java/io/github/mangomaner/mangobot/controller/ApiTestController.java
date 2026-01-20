@@ -95,7 +95,7 @@ public class ApiTestController {
         SendMessage builder = MessageBuilder.create()
                 .at(atQq)
                 .text(" " + text)
-                .image(imageUrl, 1)
+                .image(imageUrl, true)
                 .build();
         
         MessageId result = oneBotApiService.sendGroupMsg(botId, groupId, builder);

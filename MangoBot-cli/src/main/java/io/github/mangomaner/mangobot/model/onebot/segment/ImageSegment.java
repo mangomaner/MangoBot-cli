@@ -14,7 +14,7 @@ public class ImageSegment extends MessageSegment {
     @Data
     public static class ImageData {
         private String file;
-        private int subType;
+        private Integer subType;
         private String url;
         @JsonProperty("file_size")
         private String fileSize;

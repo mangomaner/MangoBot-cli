@@ -31,6 +31,13 @@ public class BotFilesServiceImpl extends ServiceImpl<BotFilesMapper, BotFiles>
     }
 
     @Override
+    public List<BotFiles> getFilesByDescription(String description) {
+        LambdaQueryWrapper<BotFiles> wrapper = new LambdaQueryWrapper<>();
+        wrapper.like(BotFiles::getDescription, description);
+        return this.list(wrapper);
+    }
+
+    @Override
     public BotFiles getFileById(Long id) {
         return this.getById(id);
     }

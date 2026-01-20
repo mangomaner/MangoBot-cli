@@ -63,14 +63,14 @@ public class MessageBuilder {
         /**
          * 添加图片
          * @param file 图片文件名 (支持 file://, http://, base64://)
-         * @param subType 图片子类型 (0: 默认, 1: 表情包)
+         * @param isMeme 是否为表情包 (0: 否, 1: 表情包)
          */
         @Override
-        public ImageState image(String file, Integer subType) {
+        public ImageState image(String file, Boolean isMeme) {
             ImageSegment segment = new ImageSegment();
             ImageSegment.ImageData data = new ImageSegment.ImageData();
             data.setFile(file);
-            data.setSubType(subType);
+            data.setSubType(Boolean.TRUE.equals(isMeme) ? 1 : null);
             segment.setData(data);
             segment.setType("image");
             segments.add(segment);
@@ -201,7 +201,7 @@ public class MessageBuilder {
         TextState text(String text);
         AtState at(String qq);
         AtAllState atAll();
-        ImageState image(String file, Integer subType);
+        ImageState image(String file, Boolean isMeme);
         FaceState face(String id);
         ReplyState reply(int messageId);
         RecordState record(String file);
@@ -214,7 +214,7 @@ public class MessageBuilder {
     public interface TextState {
         AtState at(String qq);
         AtAllState atAll();
-        ImageState image(String file, Integer subType);
+        ImageState image(String file, Boolean isMeme);
         FaceState face(String id);
         SendMessage build();
     }
@@ -223,7 +223,7 @@ public class MessageBuilder {
         TextState text(String text);
         AtState at(String qq);
         AtAllState atAll();
-        ImageState image(String file, Integer subType);
+        ImageState image(String file, Boolean isMeme);
         FaceState face(String id);
         SendMessage build();
     }
@@ -232,7 +232,7 @@ public class MessageBuilder {
         TextState text(String text);
         AtState at(String qq);
         AtAllState atAll();
-        ImageState image(String file, Integer subType);
+        ImageState image(String file, Boolean isMeme);
         FaceState face(String id);
         SendMessage build();
     }
@@ -241,7 +241,7 @@ public class MessageBuilder {
         TextState text(String text);
         AtState at(String qq);
         AtAllState atAll();
-        ImageState image(String file, Integer subType);
+        ImageState image(String file, Boolean isMeme);
         FaceState face(String id);
         SendMessage build();
     }
@@ -250,7 +250,7 @@ public class MessageBuilder {
         TextState text(String text);
         AtState at(String qq);
         AtAllState atAll();
-        ImageState image(String file, Integer subType);
+        ImageState image(String file, Boolean isMeme);
         FaceState face(String id);
         SendMessage build();
     }
@@ -259,7 +259,7 @@ public class MessageBuilder {
         TextState text(String text);
         AtState at(String qq);
         AtAllState atAll();
-        ImageState image(String file, Integer subType);
+        ImageState image(String file, Boolean isMeme);
         FaceState face(String id);
         SendMessage build();
     }

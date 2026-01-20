@@ -15,4 +15,7 @@ public class QueryLatestMessagesRequest {
     @Schema(description = "群组ID或好友ID")
     @NotNull(message = "群组ID或好友ID不能为空")
     private Long targetId;
+
+    @Schema(description = "查询消息数量")
+    private Integer num;
 }

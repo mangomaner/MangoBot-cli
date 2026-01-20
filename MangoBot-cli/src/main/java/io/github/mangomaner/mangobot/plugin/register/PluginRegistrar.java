@@ -2,6 +2,7 @@ package io.github.mangomaner.mangobot.plugin.register;
 
 import io.github.mangomaner.mangobot.annotation.MangoBotApiService;
 import io.github.mangomaner.mangobot.annotation.message.MangoBotConfig;
+import io.github.mangomaner.mangobot.annotation.message.MangoBotFilesService;
 import io.github.mangomaner.mangobot.annotation.message.MangoBotGroupMessage;
 import io.github.mangomaner.mangobot.annotation.message.MangoBotPrivateMessage;
 import io.github.mangomaner.mangobot.annotation.messageHandler.MangoBotEventListener;
@@ -11,10 +12,7 @@ import io.github.mangomaner.mangobot.manager.event.MangoEventPublisher;
 import io.github.mangomaner.mangobot.plugin.PluginRuntimeWrapper;
 import io.github.mangomaner.mangobot.plugin.register.web.MangoArgumentResolvers;
 import io.github.mangomaner.mangobot.plugin.register.web.MangoReturnValueHandler;
-import io.github.mangomaner.mangobot.service.GroupMessagesService;
-import io.github.mangomaner.mangobot.service.MangobotConfigService;
-import io.github.mangomaner.mangobot.service.OneBotApiService;
-import io.github.mangomaner.mangobot.service.PrivateMessagesService;
+import io.github.mangomaner.mangobot.service.*;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.config.ConfigurableBeanFactory;
@@ -63,6 +61,9 @@ public class PluginRegistrar {
 
     @Resource
     private PrivateMessagesService privateMessagesService;
+
+    @Resource
+    private BotFilesService botFilesService;
 
     /**
      * 注册 Web 扩展组件 (ArgumentResolvers, ReturnValueHandlers)
@@ -181,6 +182,9 @@ public class PluginRegistrar {
                 } else if (field.isAnnotationPresent(MangoBotPrivateMessage.class)) {
                     field.setAccessible(true);
                     field.set(instance, privateMessagesService);
+                } else if (field.isAnnotationPresent(MangoBotFilesService.class)) {
+                    field.setAccessible(true);
+                    field.set(instance, botFilesService);
                 }
             }  catch (IllegalAccessException e) {
             log.error("注入 MangoBotApiService 到 {}.{} 失败",

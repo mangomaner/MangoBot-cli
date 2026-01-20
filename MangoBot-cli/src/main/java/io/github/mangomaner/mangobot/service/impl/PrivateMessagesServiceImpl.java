@@ -43,7 +43,7 @@ public class PrivateMessagesServiceImpl extends ServiceImpl<PrivateMessagesMappe
         wrapper.eq(PrivateMessages::getBotId, request.getBotId())
                 .eq(PrivateMessages::getFriendId, request.getTargetId())
                 .orderByDesc(PrivateMessages::getMessageTime)
-                .last("LIMIT " + PAGE_SIZE);
+                .last("LIMIT " + (request.getNum() == null ? PAGE_SIZE : request.getNum()));
         return this.list(wrapper);
     }
 
@@ -57,7 +57,7 @@ public class PrivateMessagesServiceImpl extends ServiceImpl<PrivateMessagesMappe
                             .eq(PrivateMessages::getMessageId, request.getMessageId()))
                             .getMessageTime())
                 .orderByDesc(PrivateMessages::getMessageTime)
-                .last("LIMIT " + PAGE_SIZE);
+                .last("LIMIT " + (request.getNum() == null ? PAGE_SIZE : request.getNum()));
         return this.list(wrapper);
     }
 
@@ -95,7 +95,7 @@ public class PrivateMessagesServiceImpl extends ServiceImpl<PrivateMessagesMappe
             privateMessages.setMessageId(event.getMessageId());
             privateMessages.setSenderId(event.getUserId());
             privateMessages.setMessageSegments(objectMapper.writeValueAsString(event.getMessage()));
-            privateMessages.setMessageTime(event.getTime() * 1000L);
+            privateMessages.setMessageTime(event.getTime());
             privateMessages.setParseMessage(event.getParsedMessage());
             this.save(privateMessages);
 
@@ -116,7 +116,7 @@ public class PrivateMessagesServiceImpl extends ServiceImpl<PrivateMessagesMappe
             privateMessages.setMessageId(messageId);
             privateMessages.setSenderId(botId);
             privateMessages.setMessageSegments(objectMapper.writeValueAsString(segments));
-            privateMessages.setMessageTime(System.currentTimeMillis());
+            privateMessages.setMessageTime(System.currentTimeMillis() / 1000L);
             privateMessages.setParseMessage(messageParser.parseMessage(segments, botId));
             this.save(privateMessages);
 

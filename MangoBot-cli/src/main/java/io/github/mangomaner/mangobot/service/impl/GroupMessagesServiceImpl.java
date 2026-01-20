@@ -47,7 +47,7 @@ public class GroupMessagesServiceImpl extends ServiceImpl<GroupMessagesMapper, G
         wrapper.eq(GroupMessages::getBotId, request.getBotId())
                 .eq(GroupMessages::getGroupId, request.getTargetId())
                 .orderByDesc(GroupMessages::getMessageTime)
-                .last("LIMIT " + PAGE_SIZE);
+                .last("LIMIT " + (request.getNum() == null ? PAGE_SIZE : request.getNum()));
         return this.list(wrapper);
     }
 
@@ -61,7 +61,7 @@ public class GroupMessagesServiceImpl extends ServiceImpl<GroupMessagesMapper, G
                             .eq(GroupMessages::getMessageId, request.getMessageId()))
                             .getMessageTime())
                 .orderByDesc(GroupMessages::getMessageTime)
-                .last("LIMIT " + PAGE_SIZE);
+                .last("LIMIT " + (request.getNum() == null ? PAGE_SIZE : request.getNum()));
         return this.list(wrapper);
     }
 
@@ -99,12 +99,12 @@ public class GroupMessagesServiceImpl extends ServiceImpl<GroupMessagesMapper, G
             groupMessages.setMessageId(event.getMessageId());
             groupMessages.setSenderId(event.getUserId());
             groupMessages.setMessageSegments(objectMapper.writeValueAsString(event.getMessage()));
-            groupMessages.setMessageTime(event.getTime() * 1000L);
+            groupMessages.setMessageTime(event.getTime());
             groupMessages.setParseMessage(event.getParsedMessage());
-            this.save(groupMessages);
 
             filesService.saveFileBySegments(event.getMessage());
 
+            this.save(groupMessages);
             return groupMessages;
         } catch (Exception e) {
             throw new RuntimeException("Failed to add group message", e);
@@ -122,10 +122,10 @@ public class GroupMessagesServiceImpl extends ServiceImpl<GroupMessagesMapper, G
             groupMessages.setMessageSegments(objectMapper.writeValueAsString(segments));
             groupMessages.setMessageTime(System.currentTimeMillis());
             groupMessages.setParseMessage(messageParser.parseMessage(segments, botId));
-            this.save(groupMessages);
 
             filesService.saveFileBySegments(segments);
 
+            this.save(groupMessages);
             return groupMessages;
         } catch (Exception e) {
             throw new RuntimeException("Failed to add group message", e);
