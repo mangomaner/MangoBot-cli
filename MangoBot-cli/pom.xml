@@ -10,7 +10,7 @@
     </parent>
     <groupId>io.github.mangomaner.mangobot</groupId>
     <artifactId>mangobot</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
+    <version>0.0.2</version>
     <name>mangobot</name>
     <description>mangobot</description>
 

@@ -1,9 +1,9 @@
 package io.github.mangomaner.mangobot.plugin.register;
 
 import io.github.mangomaner.mangobot.annotation.MangoBotApiService;
-import io.github.mangomaner.mangobot.annotation.MangoBotConfig;
-import io.github.mangomaner.mangobot.annotation.MangoBotGroupMessage;
-import io.github.mangomaner.mangobot.annotation.MangoBotPrivateMessage;
+import io.github.mangomaner.mangobot.annotation.message.MangoBotConfig;
+import io.github.mangomaner.mangobot.annotation.message.MangoBotGroupMessage;
+import io.github.mangomaner.mangobot.annotation.message.MangoBotPrivateMessage;
 import io.github.mangomaner.mangobot.annotation.messageHandler.MangoBotEventListener;
 import io.github.mangomaner.mangobot.annotation.web.MangoBotRequestMapping;
 import io.github.mangomaner.mangobot.annotation.web.MangoRequestMethod;
