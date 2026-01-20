@@ -1,6 +1,5 @@
 package io.github.mangomaner.mangobot.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.type.CollectionType;
 import io.github.mangomaner.mangobot.manager.websocket.BotConnectionManager;
@@ -9,9 +8,7 @@ import io.github.mangomaner.mangobot.model.onebot.SendMessage;
 import io.github.mangomaner.mangobot.model.onebot.api.OneBotApiRequest;
 import io.github.mangomaner.mangobot.model.onebot.api.OneBotApiResponse;
 import io.github.mangomaner.mangobot.model.onebot.api.response.*;
-import io.github.mangomaner.mangobot.model.onebot.event.EventParser;
 import io.github.mangomaner.mangobot.model.onebot.event.message.GroupMessageEvent;
-import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.socket.TextMessage;
@@ -65,6 +62,29 @@ public class OneBotApiService {
         params.put("group_id", groupId);
         params.put("message", message.getMessage());
         return callApi(botId, "send_group_msg", params, MessageId.class);
+    }
+
+    /**
+     * 群组戳一戳
+     *
+     * @return
+     */
+    public MessageId sendGroupPoke(long botId, long groupId, long userId) {
+        Map<String, Object> params = new HashMap<>();
+        params.put("group_id", groupId);
+        params.put("user_id", userId);
+        return callApi(botId, "group_poke", params, MessageId.class);
+    }
+
+    /**
+     * 私聊戳一戳
+     *
+     * @return
+     */
+    public MessageId sendFriendPoke(long botId, long userId) {
+        Map<String, Object> params = new HashMap<>();
+        params.put("user_id", userId);
+        return callApi(botId, "friend_poke", params, MessageId.class);
     }
 
     /**
