@@ -22,6 +22,7 @@ public class MangoBotApplication {
         ConfigurableApplicationContext context = SpringApplication.run(MangoBotApplication.class, args);
 
         PluginManager manager = context.getBean(PluginManager.class);
+        manager.init();
         // manager.unloadPlugins();
     }
 }

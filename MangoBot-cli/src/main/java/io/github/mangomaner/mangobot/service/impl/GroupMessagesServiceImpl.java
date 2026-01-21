@@ -99,7 +99,7 @@ public class GroupMessagesServiceImpl extends ServiceImpl<GroupMessagesMapper, G
             groupMessages.setMessageId(event.getMessageId());
             groupMessages.setSenderId(event.getUserId());
             groupMessages.setMessageSegments(objectMapper.writeValueAsString(event.getMessage()));
-            groupMessages.setMessageTime(event.getTime());
+            groupMessages.setMessageTime(event.getTime() * 1000L);
             groupMessages.setParseMessage(event.getParsedMessage());
 
             filesService.saveFileBySegments(event.getMessage());

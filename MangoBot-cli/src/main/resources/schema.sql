@@ -12,8 +12,8 @@ CREATE TABLE IF NOT EXISTS mangobot_config(
     explain TEXT,                         -- 配置项说明
     category TEXT DEFAULT 'general',      -- 分类：bot / server / webhook 等
     editable BOOLEAN DEFAULT 1,           -- 是否允许前端修改（0-不允许, 1-允许）
-    created_at INTEGER DEFAULT (strftime('%s', 'now')),   -- 毫秒时间戳
-    updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+    created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),   -- 毫秒时间戳
+    updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
 );
 
 INSERT INTO mangobot_config (config_key, config_value, config_type, description, explain, category, editable) VALUES
@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS group_messages
     message_id       INTEGER,
     sender_id        INTEGER,
     message_segments TEXT,                                                      -- 消息段
-    message_time     INTEGER default (strftime('%s', 'now')) not null,
+    message_time     INTEGER default (strftime('%s', 'now') * 1000) not null,
     is_delete        INTEGER DEFAULT 0,
     -- 上方是消息原始内容，以下为加工后的内容
     parse_message    TEXT                                                       -- 解析后的自然语言消息（供参考）
@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS private_messages(
     message_id       INTEGER,
     sender_id        INTEGER,
     message_segments TEXT,                                                      -- 消息段
-    message_time     INTEGER default (strftime('%s', 'now')) not null,
+    message_time     INTEGER default (strftime('%s', 'now') * 1000) not null,
     is_delete        INTEGER DEFAULT 0,
     -- 上方是消息原始内容，以下为加工后的内容
     parse_message    TEXT                                                       -- 解析后的自然语言消息（供参考）
@@ -103,7 +103,7 @@ CREATE TABLE IF NOT EXISTS bot_files
     sub_type       INTEGER,                 -- 图片子类型
     file_size      INTEGER,
     description    TEXT,                    -- 文件描述
-    create_time    INTEGER default (strftime('%s', 'now'))
+    create_time    INTEGER default (strftime('%s', 'now') * 1000)
 );
 
 
@@ -122,5 +122,5 @@ CREATE TABLE IF NOT EXISTS plugins
     enabled             INTEGER default 0,
     enabled_web         INTEGER default 0,
     package_name        TEXT,
-    create_time         INTEGER default (strftime('%s', 'now'))
+    create_time         INTEGER default (strftime('%s', 'now') * 1000)
 );

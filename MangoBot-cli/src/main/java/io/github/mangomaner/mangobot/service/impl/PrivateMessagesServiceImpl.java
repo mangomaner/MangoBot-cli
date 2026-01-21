@@ -95,7 +95,7 @@ public class PrivateMessagesServiceImpl extends ServiceImpl<PrivateMessagesMappe
             privateMessages.setMessageId(event.getMessageId());
             privateMessages.setSenderId(event.getUserId());
             privateMessages.setMessageSegments(objectMapper.writeValueAsString(event.getMessage()));
-            privateMessages.setMessageTime(event.getTime());
+            privateMessages.setMessageTime(event.getTime() * 1000L);
             privateMessages.setParseMessage(event.getParsedMessage());
             this.save(privateMessages);
 
@@ -116,7 +116,7 @@ public class PrivateMessagesServiceImpl extends ServiceImpl<PrivateMessagesMappe
             privateMessages.setMessageId(messageId);
             privateMessages.setSenderId(botId);
             privateMessages.setMessageSegments(objectMapper.writeValueAsString(segments));
-            privateMessages.setMessageTime(System.currentTimeMillis() / 1000L);
+            privateMessages.setMessageTime(System.currentTimeMillis());
             privateMessages.setParseMessage(messageParser.parseMessage(segments, botId));
             this.save(privateMessages);
 

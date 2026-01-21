@@ -43,6 +43,11 @@ public class RecordSegment extends MessageSegment {
         private String path;
 
         /**
+         * 语音文件大小
+         */
+        private String file_size;
+
+        /**
          * 只在通过网络 URL 发送时有效，表示是否通过代理下载文件，默认 1
          */
         private String proxy; 

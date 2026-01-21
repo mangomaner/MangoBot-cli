@@ -53,7 +53,6 @@ public class PluginManager {
     private final Map<String, PluginRuntimeWrapper> pluginRegistry = new ConcurrentHashMap<>();
     private String pluginDir = "plugins";
 
-    @PostConstruct
     public void init() {
         // 自动探测插件目录
         File current = new File("plugins");
