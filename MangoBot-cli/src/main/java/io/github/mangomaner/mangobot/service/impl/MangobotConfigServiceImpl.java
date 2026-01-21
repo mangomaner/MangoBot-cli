@@ -32,12 +32,23 @@ public class MangobotConfigServiceImpl extends ServiceImpl<MangobotConfigMapper,
         }
 
         MangobotConfig config = new MangobotConfig();
+        config.setPluginId(request.getPluginId());
         config.setConfigKey(request.getKey());
         config.setConfigValue(request.getValue());
         config.setConfigType(request.getType());
         config.setDescription(request.getDesc());
         config.setExplain(request.getExplain());
         this.save(config);
+    }
+
+    @Override
+    public void deleteByPluginId(Long pluginId) {
+        if (pluginId == null) {
+            return;
+        }
+        LambdaQueryWrapper<MangobotConfig> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(MangobotConfig::getPluginId, pluginId);
+        this.remove(wrapper);
     }
 
     @Override

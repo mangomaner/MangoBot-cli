@@ -124,7 +124,7 @@ public class PluginFileWatcher {
             int retries = 3;
             while (retries > 0) {
                 try {
-                    pluginManager.loadPlugin(file);
+                    pluginManager.handleNewFile(file);
                     break;
                 } catch (Exception e) {
                     retries--;

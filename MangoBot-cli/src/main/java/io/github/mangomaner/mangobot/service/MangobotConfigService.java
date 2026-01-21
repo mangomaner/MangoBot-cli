@@ -27,4 +27,6 @@ public interface MangobotConfigService extends IService<MangobotConfig> {
     Boolean updateConfigByKey(UpdateConfigByKeyRequest request);
 
     Boolean updateConfigById(UpdateConfigRequest request);
+
+    void deleteByPluginId(Long pluginId);
 }

@@ -5,6 +5,7 @@ import lombok.Data;
 @Data
 public class CreateConfigRequest {
     private Long id;
+    private Long pluginId;
     private String key;
     private String value;
     private String desc;

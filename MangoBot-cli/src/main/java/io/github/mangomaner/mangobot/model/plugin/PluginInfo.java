@@ -14,4 +14,7 @@ public class PluginInfo implements Serializable {
     private String author;
     private String version;
     private String description;
+    private boolean enabled;
+    private boolean enableWeb;
+    private String webPath;
 }
