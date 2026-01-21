@@ -3,6 +3,8 @@
 
 CREATE TABLE IF NOT EXISTS mangobot_config(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    plugin_id INTEGER
+        constraint plugin_id_2,
     config_key TEXT NOT NULL UNIQUE,      -- 配置项唯一键，如 'bot.token', 'server.port'
     config_value TEXT,                    -- 配置值（字符串存储，支持 JSON）
     config_type TEXT NOT NULL,            -- 类型：STRING, INTEGER, BOOLEAN, JSON, SELECT
@@ -104,3 +106,21 @@ CREATE TABLE IF NOT EXISTS bot_files
     create_time    INTEGER default (strftime('%s', 'now'))
 );
 
+
+CREATE TABLE IF NOT EXISTS plugins
+(
+    id                  INTEGER not null
+        constraint plugins_pk
+            primary key autoincrement,
+    plugin_name         TEXT,
+    jar_name            TEXT    not null
+        constraint plugin_name_pk
+            unique,
+    author              TEXT    not null,
+    version             TEXT,
+    description         TEXT,
+    enabled             INTEGER default 0,
+    enabled_web         INTEGER default 0,
+    package_name        TEXT,
+    create_time         INTEGER default (strftime('%s', 'now'))
+);

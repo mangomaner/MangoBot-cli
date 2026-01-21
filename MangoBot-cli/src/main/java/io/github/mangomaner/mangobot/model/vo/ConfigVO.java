@@ -8,7 +8,7 @@ import lombok.Data;
 public class ConfigVO {
 
     @Schema(description = "配置ID")
-    private Integer id;
+    private Long id;
 
     @Schema(description = "配置键")
     private String configKey;

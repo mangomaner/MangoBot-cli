@@ -1,6 +1,7 @@
 package io.github.mangomaner.mangobot.plugin.example;
 
 import io.github.mangomaner.mangobot.annotation.MangoBotApiService;
+import io.github.mangomaner.mangobot.annotation.PluginConfig;
 import io.github.mangomaner.mangobot.annotation.PluginDescribe;
 import io.github.mangomaner.mangobot.annotation.PluginPriority;
 import io.github.mangomaner.mangobot.annotation.messageHandler.MangoBotEventListener;
@@ -15,7 +16,12 @@ import java.util.logging.Logger;
 
 // 这里包含了所有能注入的东西，包括web部分
 @MangoBotRequestMapping("/plugin")
-@PluginDescribe(name = "ExamplePlugin", author = "mangomaner", version = "1.0.0", description = "一个示例插件")
+@PluginConfig("""
+        {
+            "plugin.example.hello": "你好"
+        }
+        """)
+@PluginDescribe(name = "ExamplePlugin", author = "mangomaner", version = "1.0.0", description = "一个示例插件", enableWeb = true)
 public class ExamplePlugin implements Plugin {
 
     private static final Logger logger = Logger.getLogger("123");

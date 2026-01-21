@@ -51,6 +51,7 @@ public class BotMessageHandler extends TextWebSocketHandler implements Handshake
             Event event = EventParser.parse(payload);
 
             if (event instanceof HeartbeatEvent heartbeat) {
+                log.info("收到echo消息: {}", payload);
                 connectionManager.updateHeartbeat(session, heartbeat.getInterval());
                 return;
             }

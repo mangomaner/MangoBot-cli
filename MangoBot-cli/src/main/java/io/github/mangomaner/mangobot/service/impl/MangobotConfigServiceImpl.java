@@ -3,6 +3,7 @@ package io.github.mangomaner.mangobot.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import io.github.mangomaner.mangobot.model.domain.MangobotConfig;
+import io.github.mangomaner.mangobot.model.dto.config.CreateConfigRequest;
 import io.github.mangomaner.mangobot.model.dto.config.UpdateConfigByKeyRequest;
 import io.github.mangomaner.mangobot.model.dto.config.UpdateConfigRequest;
 import io.github.mangomaner.mangobot.model.vo.ConfigVO;
@@ -24,6 +25,22 @@ public class MangobotConfigServiceImpl extends ServiceImpl<MangobotConfigMapper,
     implements MangobotConfigService{
 
     @Override
+    public void registeConfig(CreateConfigRequest  request) {
+        if (request.getKey() == null || !request.getKey().startsWith("plugin")) {
+            log.error("key格式错误，请以 plugin 开头，详情参照开发文档");
+            return;
+        }
+
+        MangobotConfig config = new MangobotConfig();
+        config.setConfigKey(request.getKey());
+        config.setConfigValue(request.getValue());
+        config.setConfigType(request.getType());
+        config.setDescription(request.getDesc());
+        config.setExplain(request.getExplain());
+        this.save(config);
+    }
+
+    @Override
     public List<ConfigVO> getAllConfigs() {
         List<MangobotConfig> configs = this.list();
         return configs.stream()
@@ -33,6 +50,11 @@ public class MangobotConfigServiceImpl extends ServiceImpl<MangobotConfigMapper,
 
     @Override
     public ConfigVO getConfigByKey(String configKey) {
+        if (configKey == null || !configKey.startsWith("main") || !configKey.startsWith("plugin")) {
+            log.error("key格式错误，请以 plugin/main 开头，详情参照开发文档");
+            return null;
+        }
+
         LambdaQueryWrapper<MangobotConfig> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(MangobotConfig::getConfigKey, configKey);
         MangobotConfig config = this.getOne(wrapper);
@@ -40,13 +62,17 @@ public class MangobotConfigServiceImpl extends ServiceImpl<MangobotConfigMapper,
     }
 
     @Override
-    public ConfigVO getConfigById(Integer id) {
+    public ConfigVO getConfigById(Long id) {
         MangobotConfig config = this.getById(id);
         return convertToVO(config);
     }
 
     @Override
     public Boolean updateConfigByKey(UpdateConfigByKeyRequest request) {
+        if (request.getConfigKey() == null || !request.getConfigKey().startsWith("plugin") || !request.getConfigKey().startsWith("main")) {
+            log.error("key格式错误，请以 plugin/main 开头，详情参照开发文档");
+            return false;
+        }
         LambdaQueryWrapper<MangobotConfig> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(MangobotConfig::getConfigKey, request.getConfigKey());
         MangobotConfig config = this.getOne(wrapper);

@@ -6,6 +6,7 @@
 
     <resultMap id="BaseResultMap" type="io.github.mangomaner.mangobot.model.domain.MangobotConfig">
             <id property="id" column="id" jdbcType="INTEGER"/>
+            <result property="pluginId" column="plugin_id" jdbcType="INTEGER"/>
             <result property="configKey" column="config_key" jdbcType="VARCHAR"/>
             <result property="configValue" column="config_value" jdbcType="VARCHAR"/>
             <result property="configType" column="config_type" jdbcType="VARCHAR"/>
@@ -18,9 +19,9 @@
     </resultMap>
 
     <sql id="Base_Column_List">
-        id,config_key,config_value,
-        config_type,description,explain,
-        category,editable,created_at,
-        updated_at
+        id,plugin_key,config_key,
+        config_value,config_type,description,
+        explain,category,editable,
+        created_at,updated_at
     </sql>
 </mapper>

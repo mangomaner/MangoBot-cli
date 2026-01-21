@@ -18,7 +18,12 @@ public class MangobotConfig implements Serializable {
      * 
      */
     @TableId(type = IdType.AUTO)
-    private Integer id;
+    private Long id;
+
+    /**
+     *
+     */
+    private Long pluginId;
 
     /**
      * 
@@ -58,7 +63,7 @@ public class MangobotConfig implements Serializable {
     /**
      * 
      */
-    private Integer createdAt;
+    private Long createdAt;
 
     /**
      * 

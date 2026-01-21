@@ -65,7 +65,7 @@ public class BotConfigController {
     @GetMapping("/id/{id}")
     @Operation(summary = "根据配置ID获取配置")
     public BaseResponse<ConfigVO> getConfigById(
-            @Parameter(description = "配置ID") @PathVariable Integer id) {
+            @Parameter(description = "配置ID") @PathVariable Long id) {
         ConfigVO config = mangobotConfigService.getConfigById(id);
         return ResultUtils.success(config);
     }
@@ -78,7 +78,7 @@ public class BotConfigController {
     @PostMapping("/AiModel/test")
     @Operation(summary = "测试Ai模型")
     public BaseResponse<AiTestResultVo> testAiModel(
-            @Parameter(description = "配置ID") @RequestParam Integer id) {
+            @Parameter(description = "配置ID") @RequestParam Long id) {
         String result = mangobotConfigService.getConfigById(id).getConfigValue();
         AiTestResultVo aiTestResultVo = new AiTestResultVo();
         aiTestResultVo.setSuccess(true);

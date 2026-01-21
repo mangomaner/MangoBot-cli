@@ -1,6 +1,7 @@
 package io.github.mangomaner.mangobot.service;
 
 import io.github.mangomaner.mangobot.model.domain.MangobotConfig;
+import io.github.mangomaner.mangobot.model.dto.config.CreateConfigRequest;
 import io.github.mangomaner.mangobot.model.dto.config.UpdateConfigByKeyRequest;
 import io.github.mangomaner.mangobot.model.dto.config.UpdateConfigRequest;
 import io.github.mangomaner.mangobot.model.vo.ConfigVO;
@@ -15,11 +16,13 @@ import java.util.List;
 */
 public interface MangobotConfigService extends IService<MangobotConfig> {
 
+    void registeConfig(CreateConfigRequest request);
+
     List<ConfigVO> getAllConfigs();
 
     ConfigVO getConfigByKey(String configKey);
 
-    ConfigVO getConfigById(Integer id);
+    ConfigVO getConfigById(Long id);
 
     Boolean updateConfigByKey(UpdateConfigByKeyRequest request);
 
