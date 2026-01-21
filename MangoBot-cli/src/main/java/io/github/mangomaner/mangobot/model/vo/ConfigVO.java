@@ -22,6 +22,9 @@ public class ConfigVO {
     @Schema(description = "描述")
     private String description;
 
+    @Schema(description = "说明")
+    private String explain;
+
     @Schema(description = "分类")
     private String category;
 

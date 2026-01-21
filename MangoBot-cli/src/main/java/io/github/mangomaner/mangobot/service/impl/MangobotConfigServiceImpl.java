@@ -61,7 +61,7 @@ public class MangobotConfigServiceImpl extends ServiceImpl<MangobotConfigMapper,
 
     @Override
     public ConfigVO getConfigByKey(String configKey) {
-        if (configKey == null || !configKey.startsWith("main") || !configKey.startsWith("plugin")) {
+        if (configKey == null || (!configKey.startsWith("main") && !configKey.startsWith("plugin"))) {
             log.error("key格式错误，请以 plugin/main 开头，详情参照开发文档");
             return null;
         }
@@ -80,7 +80,7 @@ public class MangobotConfigServiceImpl extends ServiceImpl<MangobotConfigMapper,
 
     @Override
     public Boolean updateConfigByKey(UpdateConfigByKeyRequest request) {
-        if (request.getConfigKey() == null || !request.getConfigKey().startsWith("plugin") || !request.getConfigKey().startsWith("main")) {
+        if (request.getConfigKey() == null || (!request.getConfigKey().startsWith("plugin") && !request.getConfigKey().startsWith("main"))) {
             log.error("key格式错误，请以 plugin/main 开头，详情参照开发文档");
             return false;
         }

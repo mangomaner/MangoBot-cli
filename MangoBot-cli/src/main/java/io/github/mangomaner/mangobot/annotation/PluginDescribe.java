@@ -12,6 +12,6 @@ public @interface PluginDescribe {
     String author();
     String version();
     String description();
-    boolean enable() default false;
+//    boolean enable() default false;
     boolean enableWeb() default false;
 }

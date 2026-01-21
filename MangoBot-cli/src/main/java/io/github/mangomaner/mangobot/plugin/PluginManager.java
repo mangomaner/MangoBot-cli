@@ -179,7 +179,8 @@ public class PluginManager {
                             plugin.setEnabledWeb(describe.enableWeb() ? 1 : 0);
                             // 默认启用状态：如果是新记录，使用注解默认值；如果是旧记录，保持原样（但这里假设是新注册）
                             if (plugin.getId() == null) {
-                                plugin.setEnabled(describe.enable() ? 1 : 0);
+//                                plugin.setEnabled(describe.enable() ? 1 : 0);
+                                plugin.setEnabled(0);
                             }
                             pluginsService.saveOrUpdate(plugin);
 

@@ -44,14 +44,13 @@ public class BotMessageHandler extends TextWebSocketHandler implements Handshake
 
         // Check if it's an API response (Echo)
         if (echoHandler.handleEcho(payload)) {
+            log.debug("收到echo消息: {}", payload);
             return;
         }
 
         try {
             Event event = EventParser.parse(payload);
-
             if (event instanceof HeartbeatEvent heartbeat) {
-                log.info("收到echo消息: {}", payload);
                 connectionManager.updateHeartbeat(session, heartbeat.getInterval());
                 return;
             }
