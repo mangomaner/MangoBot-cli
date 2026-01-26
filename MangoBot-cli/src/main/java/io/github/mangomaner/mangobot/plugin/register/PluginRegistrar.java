@@ -1,7 +1,6 @@
 package io.github.mangomaner.mangobot.plugin.register;
 
 import io.github.mangomaner.mangobot.annotation.MangoBotApiService;
-import io.github.mangomaner.mangobot.annotation.message.MangoBotConfig;
 import io.github.mangomaner.mangobot.annotation.message.MangoBotFilesService;
 import io.github.mangomaner.mangobot.annotation.message.MangoBotGroupMessage;
 import io.github.mangomaner.mangobot.annotation.message.MangoBotPrivateMessage;
@@ -173,9 +172,6 @@ public class PluginRegistrar {
                 if (field.isAnnotationPresent(MangoBotApiService.class)) {
                     field.setAccessible(true);
                     field.set(instance, oneBotApiService);
-                } else if (field.isAnnotationPresent(MangoBotConfig.class)) {
-                    field.setAccessible(true);
-                    field.set(instance, mangobotConfigService);
                 } else if (field.isAnnotationPresent(MangoBotGroupMessage.class)) {
                     field.setAccessible(true);
                     field.set(instance, groupMessagesService);
