@@ -2,6 +2,9 @@ package io.github.mangomaner.mangobot.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import io.github.mangomaner.mangobot.manager.GlobalConfigCache;
+import io.github.mangomaner.mangobot.manager.event.ConfigChangeEvent;
+import io.github.mangomaner.mangobot.manager.event.MangoEventPublisher;
 import io.github.mangomaner.mangobot.model.domain.MangobotConfig;
 import io.github.mangomaner.mangobot.model.dto.config.CreateConfigRequest;
 import io.github.mangomaner.mangobot.model.dto.config.UpdateConfigByKeyRequest;
@@ -9,10 +12,17 @@ import io.github.mangomaner.mangobot.model.dto.config.UpdateConfigRequest;
 import io.github.mangomaner.mangobot.model.vo.ConfigVO;
 import io.github.mangomaner.mangobot.service.MangobotConfigService;
 import io.github.mangomaner.mangobot.mapper.MangobotConfigMapper;
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.Resource;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -21,8 +31,39 @@ import java.util.stream.Collectors;
 * @createDate 2026-01-17 13:11:01
 */
 @Service
+@Slf4j
 public class MangobotConfigServiceImpl extends ServiceImpl<MangobotConfigMapper, MangobotConfig>
     implements MangobotConfigService{
+
+    @Resource
+    private GlobalConfigCache globalConfigCache;
+
+    @Resource
+    private MangoEventPublisher mangoEventPublisher;
+
+    @PostConstruct
+    public void init() {
+        refreshCache();
+    }
+
+    /**
+     * 定时任务：每小时刷新一次配置缓存
+     * 作为兜底策略，确保缓存与数据库的最终一致性
+     */
+    @Scheduled(fixedRate = 3600000) // 1小时 = 60 * 60 * 1000 毫秒
+    public void refreshCache() {
+        try {
+            List<MangobotConfig> list = this.list();
+            Map<String, String> map = new HashMap<>();
+            for (MangobotConfig config : list) {
+                map.put(config.getConfigKey(), config.getConfigValue());
+            }
+            globalConfigCache.refreshAll(map);
+            log.debug("配置缓存已同步，当前加载 {} 项配置", map.size());
+        } catch (Exception e) {
+            log.error("定时刷新配置缓存失败", e);
+        }
+    }
 
     @Override
     public void registeConfig(CreateConfigRequest  request) {
@@ -39,6 +80,10 @@ public class MangobotConfigServiceImpl extends ServiceImpl<MangobotConfigMapper,
         config.setDescription(request.getDesc());
         config.setExplain(request.getExplain());
         this.save(config);
+
+        // 更新缓存并发布事件
+        globalConfigCache.put(config.getConfigKey(), config.getConfigValue());
+        mangoEventPublisher.publish(new ConfigChangeEvent(config.getConfigKey(), config.getConfigValue()));
     }
 
     @Override
@@ -48,7 +93,16 @@ public class MangobotConfigServiceImpl extends ServiceImpl<MangobotConfigMapper,
         }
         LambdaQueryWrapper<MangobotConfig> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(MangobotConfig::getPluginId, pluginId);
+        List<MangobotConfig> configs = this.list(wrapper);
+        
         this.remove(wrapper);
+
+        // 更新缓存并发布事件
+        for (MangobotConfig config : configs) {
+            globalConfigCache.remove(config.getConfigKey());
+            // 删除时发布值为 null 的事件，或者定义特殊的删除事件。这里发布 null 表示删除/置空
+            mangoEventPublisher.publish(new ConfigChangeEvent(config.getConfigKey(), null));
+        }
     }
 
     @Override
@@ -64,6 +118,15 @@ public class MangobotConfigServiceImpl extends ServiceImpl<MangobotConfigMapper,
         if (configKey == null || (!configKey.startsWith("main") && !configKey.startsWith("plugin"))) {
             log.error("key格式错误，请以 plugin/main 开头，详情参照开发文档");
             return null;
+        }
+
+        // 优先从缓存获取，如果没有再查库（虽然缓存应该总是有）
+        String cachedValue = globalConfigCache.get(configKey);
+        if (cachedValue != null) {
+            ConfigVO vo = new ConfigVO();
+            vo.setConfigKey(configKey);
+            vo.setConfigValue(cachedValue);
+            return vo;
         }
 
         LambdaQueryWrapper<MangobotConfig> wrapper = new LambdaQueryWrapper<>();
@@ -91,7 +154,13 @@ public class MangobotConfigServiceImpl extends ServiceImpl<MangobotConfigMapper,
             return false;
         }
         config.setConfigValue(request.getConfigValue());
-        return this.updateById(config);
+        boolean success = this.updateById(config);
+        
+        if (success) {
+            globalConfigCache.put(config.getConfigKey(), config.getConfigValue());
+            mangoEventPublisher.publish(new ConfigChangeEvent(config.getConfigKey(), config.getConfigValue()));
+        }
+        return success;
     }
 
     @Override
@@ -101,7 +170,13 @@ public class MangobotConfigServiceImpl extends ServiceImpl<MangobotConfigMapper,
             return false;
         }
         config.setConfigValue(request.getConfigValue());
-        return this.updateById(config);
+        boolean success = this.updateById(config);
+
+        if (success) {
+            globalConfigCache.put(config.getConfigKey(), config.getConfigValue());
+            mangoEventPublisher.publish(new ConfigChangeEvent(config.getConfigKey(), config.getConfigValue()));
+        }
+        return success;
     }
 
     private ConfigVO convertToVO(MangobotConfig config) {
@@ -113,7 +188,3 @@ public class MangobotConfigServiceImpl extends ServiceImpl<MangobotConfigMapper,
         return vo;
     }
 }
-
-
-
-
