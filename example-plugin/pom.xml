@@ -19,9 +19,9 @@
         <dependency>
             <groupId>io.github.mangomaner.mangobot</groupId>
             <artifactId>mangobot</artifactId>
-            <version>0.0.1-SNAPSHOT</version>
+            <version>0.0.2</version>
             <scope>system</scope>
-            <systemPath>${project.basedir}/lib/mangobot-0.0.1-SNAPSHOT-lib.jar</systemPath>
+            <systemPath>${project.basedir}/lib/mangobot-0.0.2-lib.jar</systemPath>
         </dependency>
         <dependency>
             <groupId>org.projectlombok</groupId>

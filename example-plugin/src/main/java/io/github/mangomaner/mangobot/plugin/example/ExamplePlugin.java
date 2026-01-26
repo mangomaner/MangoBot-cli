@@ -7,6 +7,8 @@ import io.github.mangomaner.mangobot.annotation.PluginPriority;
 import io.github.mangomaner.mangobot.annotation.messageHandler.MangoBotEventListener;
 import io.github.mangomaner.mangobot.annotation.web.MangoBotRequestMapping;
 import io.github.mangomaner.mangobot.annotation.web.MangoRequestMethod;
+import io.github.mangomaner.mangobot.manager.GlobalConfigCache;
+import io.github.mangomaner.mangobot.manager.event.ConfigChangeEvent;
 import io.github.mangomaner.mangobot.model.onebot.event.message.GroupMessageEvent;
 import io.github.mangomaner.mangobot.plugin.Plugin;
 import io.github.mangomaner.mangobot.service.OneBotApiService;
@@ -16,11 +18,7 @@ import java.util.logging.Logger;
 
 // 这里包含了所有能注入的东西，包括web部分
 @MangoBotRequestMapping("/plugin")
-@PluginConfig("""
-        {
-            "plugin.example.hello": "你好"
-        }
-        """)
+@PluginConfig(key = "plugin.example.hello", value = "你好", description = "测试配置")
 @PluginDescribe(name = "ExamplePlugin", author = "mangomaner", version = "1.0.0", description = "一个示例插件", enableWeb = true)
 public class ExamplePlugin implements Plugin {
 
@@ -62,6 +60,15 @@ public class ExamplePlugin implements Plugin {
     public boolean onGroupMessage(GroupMessageEvent event){
         System.out.println("插件成功收到消息: " + event.getRawMessage());
         return false;
+    }
+
+    @MangoBotEventListener
+    public boolean onConfigChange(ConfigChangeEvent event) {
+        System.out.println("插件收到配置变更通知: key=" + event.getKey() + ", value=" + event.getValue());
+        // 示例：获取最新配置
+        String config = GlobalConfigCache.getConfig(event.getKey());
+        System.out.println("从缓存获取最新配置: " + config);
+        return true;
     }
 
     @MangoBotRequestMapping(value = "/ok", method = MangoRequestMethod.GET)

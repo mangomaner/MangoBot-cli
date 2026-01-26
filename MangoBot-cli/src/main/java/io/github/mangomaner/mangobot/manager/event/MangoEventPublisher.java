@@ -1,15 +1,12 @@
 package io.github.mangomaner.mangobot.manager.event;
 
-import io.github.mangomaner.mangobot.annotation.MangoBot;
 import io.github.mangomaner.mangobot.annotation.messageHandler.MangoBotEventListener;
 import io.github.mangomaner.mangobot.annotation.PluginPriority;
 import io.github.mangomaner.mangobot.handler.MessageHandler;
+import io.github.mangomaner.mangobot.manager.filter.EventFilter;
 import io.github.mangomaner.mangobot.model.onebot.event.Event;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.config.BeanDefinition;
-import org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider;
-import org.springframework.core.type.filter.AnnotationTypeFilter;
 import org.springframework.stereotype.Component;
 
 import java.lang.reflect.Method;
@@ -22,8 +19,13 @@ import java.util.concurrent.TimeUnit;
 @Component
 @Slf4j
 public class MangoEventPublisher {
+
+    // 注入事件过滤器（目前只有一个，如果有多个可以注入 List<EventFilter> 并遍历）
+    @Resource
+    private EventFilter eventFilter;
+
     private final Map<Class<?>, List<ListenerMethod>> listenerCache = new ConcurrentHashMap<>();
-    private ThreadPoolExecutor executor = new ThreadPoolExecutor(1, 10, 1000, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(), new ThreadPoolExecutor.CallerRunsPolicy());
+    private final ThreadPoolExecutor executor = new ThreadPoolExecutor(1, 10, 1000, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(), new ThreadPoolExecutor.CallerRunsPolicy());
 
     public MangoEventPublisher(MessageHandler messageHandler) {
         // 用于注册 MessageHandler
@@ -33,6 +35,38 @@ public class MangoEventPublisher {
                 registerListener(method, messageHandler);
             }
         }
+    }
+
+    /**
+     * 多线程发布事件
+     * @param event
+     */
+    public void publish(Event event) {
+        // 1. 处理配置变更事件（优先通知过滤器更新状态）
+        if (event instanceof ConfigChangeEvent) {
+            eventFilter.handleConfigChange((ConfigChangeEvent) event);
+        }
+
+        // 2. 过滤器检查
+        if (!eventFilter.allow(event)) {
+            return;
+        }
+
+        // 3. 分发事件
+        executor.execute(() -> {
+            List<ListenerMethod> listeners = getListenersForEvent(event.getClass());
+            for (ListenerMethod listener : listeners) {
+                try {
+                    boolean result = (boolean) listener.method.invoke(listener.bean, event);
+                    if (!result) {
+                        log.debug("监听器 {} 返回 false，停止传播。", listener.method.getName());
+                        break;
+                    }
+                } catch (Exception e) {
+                    log.error("执行监听器时出错: {}", listener.method.getName(), e);
+                }
+            }
+        });
     }
 
     /**
@@ -112,26 +146,6 @@ public class MangoEventPublisher {
         }
     }
 
-    /**
-     * 多线程发布事件
-     * @param event
-     */
-    public void publish(Event event) {
-        executor.execute(() -> {
-            List<ListenerMethod> listeners = getListenersForEvent(event.getClass());
-            for (ListenerMethod listener : listeners) {
-                try {
-                    boolean result = (boolean) listener.method.invoke(listener.bean, event);
-                    if (!result) {
-                        log.debug("监听器 {} 返回 false，停止传播。", listener.method.getName());
-                        break;
-                    }
-                } catch (Exception e) {
-                    log.error("执行监听器时出错: {}", listener.method.getName(), e);
-                }
-            }
-        });
-    }
 
     private List<ListenerMethod> getListenersForEvent(Class<?> eventClass) {
         List<ListenerMethod> result = new ArrayList<>();
