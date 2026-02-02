@@ -1,9 +1,6 @@
 package io.github.mangomaner.mangobot.plugin.register;
 
 import io.github.mangomaner.mangobot.annotation.MangoBotApiService;
-import io.github.mangomaner.mangobot.annotation.message.MangoBotFilesService;
-import io.github.mangomaner.mangobot.annotation.message.MangoBotGroupMessage;
-import io.github.mangomaner.mangobot.annotation.message.MangoBotPrivateMessage;
 import io.github.mangomaner.mangobot.annotation.messageHandler.MangoBotEventListener;
 import io.github.mangomaner.mangobot.annotation.web.MangoBotRequestMapping;
 import io.github.mangomaner.mangobot.annotation.web.MangoRequestMethod;
@@ -172,15 +169,6 @@ public class PluginRegistrar {
                 if (field.isAnnotationPresent(MangoBotApiService.class)) {
                     field.setAccessible(true);
                     field.set(instance, oneBotApiService);
-                } else if (field.isAnnotationPresent(MangoBotGroupMessage.class)) {
-                    field.setAccessible(true);
-                    field.set(instance, groupMessagesService);
-                } else if (field.isAnnotationPresent(MangoBotPrivateMessage.class)) {
-                    field.setAccessible(true);
-                    field.set(instance, privateMessagesService);
-                } else if (field.isAnnotationPresent(MangoBotFilesService.class)) {
-                    field.setAccessible(true);
-                    field.set(instance, botFilesService);
                 }
             }  catch (IllegalAccessException e) {
             log.error("注入 MangoBotApiService 到 {}.{} 失败",

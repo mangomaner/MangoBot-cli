@@ -9,7 +9,7 @@ import java.lang.annotation.Target;
  * 用于标记监听者
  */
 @Retention(RetentionPolicy.RUNTIME)
-@Target(ElementType.METHOD)
+@Target({ElementType.METHOD, ElementType.TYPE})
 public @interface MangoBotEventListener {
 
 }

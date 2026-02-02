@@ -73,6 +73,7 @@ public class PluginManager {
 
         pluginRegistrar.registerWebComponents();
         syncPlugins();
+        mangobotConfigService.init();
     }
 
     public File getPluginDirectory() {
@@ -203,7 +204,7 @@ public class PluginManager {
                                 req.setType(pc.type());
                                 req.setDesc(pc.description());
                                 req.setExplain(pc.explain());
-                                mangobotConfigService.registeConfig(req);
+                                mangobotConfigService.registeConfigWithoutPublish(req);
                             }
 
                             log.info("插件注册成功: {}", jarName);

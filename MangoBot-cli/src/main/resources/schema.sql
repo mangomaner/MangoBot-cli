@@ -31,6 +31,7 @@ INSERT INTO mangobot_config (config_key, config_value, config_type, description,
     ('main.model.main_model', '{"base_url": "https://xxx.xxxxx.xx/xx", "api-key": "sk-xxx", "model_name": "xxx"}', 'JSON', '主模型', '', 'model', 1),
     ('main.model.assistant_model', '{"base_url": "https://xxx.xxxxx.xx/xx", "api-key": "sk-xxx", "model_name": "xxx"}', 'JSON', '助手模型（用量较大，用于简单任务）', '', 'model', 1),
     ('main.model.image_model', '{"base_url": "https://xxx.xxxxx.xx/xx", "api-key": "sk-xxx", "model_name": "xxx"}', 'JSON', '图片模型', '', 'model', 1),
+    ('main.model.embedding_model', '{"base_url": "https://xxx.xxxxx.xx/xx", "api-key": "sk-xxx", "model_name": "xxx"}', 'JSON', '向量模型', '', 'model', 1),
 
     -- 主项目普通配置
     ('main.QQ.test', '好好好', 'STRING', '测试配置', '', 'normal', 1),

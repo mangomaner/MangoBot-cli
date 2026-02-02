@@ -14,6 +14,7 @@ import org.springframework.stereotype.Component;
 
 @Component
 @Slf4j
+@MangoBotEventListener
 public class MessageHandler {
 
     @Resource

@@ -2,11 +2,14 @@ package io.github.mangomaner.mangobot.manager.event;
 
 import io.github.mangomaner.mangobot.annotation.messageHandler.MangoBotEventListener;
 import io.github.mangomaner.mangobot.annotation.PluginPriority;
+import io.github.mangomaner.mangobot.config.AiConfig;
 import io.github.mangomaner.mangobot.handler.MessageHandler;
 import io.github.mangomaner.mangobot.manager.filter.EventFilter;
 import io.github.mangomaner.mangobot.model.onebot.event.Event;
+import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
 
 import java.lang.reflect.Method;
@@ -24,15 +27,33 @@ public class MangoEventPublisher {
     @Resource
     private EventFilter eventFilter;
 
+    @Resource
+    private ApplicationContext applicationContext;
+
     private final Map<Class<?>, List<ListenerMethod>> listenerCache = new ConcurrentHashMap<>();
     private final ThreadPoolExecutor executor = new ThreadPoolExecutor(1, 10, 1000, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(), new ThreadPoolExecutor.CallerRunsPolicy());
 
-    public MangoEventPublisher(MessageHandler messageHandler) {
-        // 用于注册 MessageHandler
-        Class<?> clazz = MessageHandler.class;
-        for (Method method : clazz.getDeclaredMethods()) {
-            if (method.isAnnotationPresent(MangoBotEventListener.class)) {
-                registerListener(method, messageHandler);
+    /**
+     * 初始化时自动扫描 Spring 容器中带有 @MangoBotEventListener 注解的 Bean，
+     * 并注册其中带有 @MangoBotEventListener 的方法。
+     */
+    @PostConstruct
+    public void init() {
+        // 优化：只获取类上带有 @MangoBotEventListener 注解的 Bean，避免全量扫描
+        Map<String, Object> beans = applicationContext.getBeansWithAnnotation(MangoBotEventListener.class);
+        
+        for (Object bean : beans.values()) {
+            // 避免处理 Spring 内部代理类导致的问题
+            Class<?> clazz = bean.getClass();
+            // 如果是被 CGLIB 代理的类，获取原始类
+            if (clazz.getName().contains("$$")) {
+                clazz = clazz.getSuperclass();
+            }
+
+            for (Method method : clazz.getDeclaredMethods()) {
+                if (method.isAnnotationPresent(MangoBotEventListener.class)) {
+                    registerListener(method, bean);
+                }
             }
         }
     }

@@ -16,6 +16,8 @@ import java.util.List;
 */
 public interface MangobotConfigService extends IService<MangobotConfig> {
 
+    void init();
+
     void registeConfig(CreateConfigRequest request);
 
     List<ConfigVO> getAllConfigs();
@@ -27,6 +29,8 @@ public interface MangobotConfigService extends IService<MangobotConfig> {
     Boolean updateConfigByKey(UpdateConfigByKeyRequest request);
 
     Boolean updateConfigById(UpdateConfigRequest request);
+
+    void registeConfigWithoutPublish(CreateConfigRequest request);
 
     void deleteByPluginId(Long pluginId);
 }

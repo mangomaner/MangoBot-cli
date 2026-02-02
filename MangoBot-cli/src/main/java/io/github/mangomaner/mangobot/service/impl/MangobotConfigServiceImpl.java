@@ -12,11 +12,9 @@ import io.github.mangomaner.mangobot.model.dto.config.UpdateConfigRequest;
 import io.github.mangomaner.mangobot.model.vo.ConfigVO;
 import io.github.mangomaner.mangobot.service.MangobotConfigService;
 import io.github.mangomaner.mangobot.mapper.MangobotConfigMapper;
-import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -41,7 +39,7 @@ public class MangobotConfigServiceImpl extends ServiceImpl<MangobotConfigMapper,
     @Resource
     private MangoEventPublisher mangoEventPublisher;
 
-    @PostConstruct
+    @Override
     public void init() {
         refreshCache();
     }
@@ -50,7 +48,7 @@ public class MangobotConfigServiceImpl extends ServiceImpl<MangobotConfigMapper,
      * 定时任务：每小时刷新一次配置缓存
      * 作为兜底策略，确保缓存与数据库的最终一致性
      */
-    @Scheduled(fixedRate = 3600000) // 1小时 = 60 * 60 * 1000 毫秒
+    @Scheduled(fixedRate = 3600000, initialDelay = 3600000) // 1小时 = 60 * 60 * 1000 毫秒
     public void refreshCache() {
         try {
             List<MangobotConfig> list = this.list();
@@ -58,7 +56,12 @@ public class MangobotConfigServiceImpl extends ServiceImpl<MangobotConfigMapper,
             for (MangobotConfig config : list) {
                 map.put(config.getConfigKey(), config.getConfigValue());
             }
+
             globalConfigCache.refreshAll(map);
+
+            for (MangobotConfig config : list) {
+                mangoEventPublisher.publish(new ConfigChangeEvent(config.getConfigKey(), config.getConfigValue()));
+            }
             log.info("配置缓存已同步，当前加载 {} 项配置", map.size());
         } catch (Exception e) {
             log.error("定时刷新配置缓存失败", e);
@@ -66,7 +69,13 @@ public class MangobotConfigServiceImpl extends ServiceImpl<MangobotConfigMapper,
     }
 
     @Override
-    public void registeConfig(CreateConfigRequest  request) {
+    public void registeConfig(CreateConfigRequest request) {
+        registeConfigWithoutPublish(request);
+        mangoEventPublisher.publish(new ConfigChangeEvent(request.getKey(), request.getValue()));
+    }
+
+    @Override
+    public void registeConfigWithoutPublish(CreateConfigRequest request) {
         if (request.getKey() == null || !request.getKey().startsWith("plugin")) {
             log.error("key格式错误，请以 plugin 开头，详情参照开发文档");
             return;
@@ -83,7 +92,6 @@ public class MangobotConfigServiceImpl extends ServiceImpl<MangobotConfigMapper,
 
         // 更新缓存并发布事件
         globalConfigCache.put(config.getConfigKey(), config.getConfigValue());
-        mangoEventPublisher.publish(new ConfigChangeEvent(config.getConfigKey(), config.getConfigValue()));
     }
 
     @Override
