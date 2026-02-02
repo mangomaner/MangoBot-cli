@@ -13,6 +13,7 @@ import io.github.mangomaner.mangobot.plugin.register.PluginRegistrar;
 import io.github.mangomaner.mangobot.plugin.unregister.PluginUnloader;
 import io.github.mangomaner.mangobot.service.MangobotConfigService;
 import io.github.mangomaner.mangobot.service.PluginsService;
+import io.github.mangomaner.mangobot.utils.FileUtils;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -22,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.jar.JarEntry;
@@ -54,20 +56,22 @@ public class PluginManager {
     private String pluginDir = "plugins";
 
     public void init() {
-        // 自动探测插件目录
-        File current = new File("plugins");
-        File parent = new File("../plugins");
+        Path baseDir = FileUtils.getBaseDirectory();
+        Path currentPlugins = baseDir.resolve("plugins");
+        Path parentPlugins = baseDir.resolve("../plugins");
+        
+        File current = currentPlugins.toFile();
+        File parent = parentPlugins.toFile();
+        
         if (!current.exists() && parent.exists() && parent.isDirectory()) {
-            this.pluginDir = "../plugins";
+            this.pluginDir = parent.getAbsolutePath();
             log.info("检测到上一级目录存在 plugins 文件夹，将使用: {}", parent.getAbsolutePath());
         } else {
+            this.pluginDir = current.getAbsolutePath();
             log.info("使用默认插件目录: {}", current.getAbsolutePath());
         }
 
-        // 初始化 Web 组件
         pluginRegistrar.registerWebComponents();
-
-        // 启动同步
         syncPlugins();
     }
 
@@ -83,7 +87,7 @@ public class PluginManager {
         log.info("开始同步插件...");
         File dir = getPluginDirectory();
         if (!dir.exists()) {
-            dir.mkdirs();
+            FileUtils.createDirectory(dir.toPath());
         }
 
         File[] files = dir.listFiles((d, name) -> name.endsWith(".jar"));
@@ -93,10 +97,8 @@ public class PluginManager {
             fileNames.add(f.getName());
         }
 
-        // 1. 获取数据库中所有插件
         List<Plugins> dbPlugins = pluginsService.list();
 
-        // 2. 清理无效插件（DB有，文件无）
         for (Plugins p : dbPlugins) {
             if (!fileNames.contains(p.getJarName())) {
                 log.info("发现残留插件记录，正在清理: {}", p.getJarName());
@@ -104,7 +106,6 @@ public class PluginManager {
             }
         }
 
-        // 3. 注册新插件（文件有，DB无）
         for (File file : fileList) {
             boolean exists = dbPlugins.stream().anyMatch(p -> p.getJarName().equals(file.getName()));
             if (!exists) {
@@ -113,7 +114,6 @@ public class PluginManager {
             }
         }
 
-        // 4. 加载所有 enabled=1 的插件
         List<Plugins> enabledPlugins = pluginsService.list(new LambdaQueryWrapper<Plugins>().eq(Plugins::getEnabled, 1));
         for (Plugins p : enabledPlugins) {
             File file = new File(dir, p.getJarName());
@@ -340,14 +340,17 @@ public class PluginManager {
 
     private void deleteWebResources(String jarName) {
         String folderName = jarName.replace(".jar", "");
-        File webDir = new File("web", folderName);
-        if (webDir.exists()) {
-            deleteDirectory(webDir);
-        } else {
-             File parentWeb = new File("../web", folderName);
-             if (parentWeb.exists()) {
-                 deleteDirectory(parentWeb);
-             }
+        Path baseDir = FileUtils.getBaseDirectory();
+        Path webDir = baseDir.resolve("web").resolve(folderName);
+        Path parentWebDir = baseDir.resolve("../web").resolve(folderName);
+        
+        File webDirFile = webDir.toFile();
+        File parentWebDirFile = parentWebDir.toFile();
+        
+        if (webDirFile.exists()) {
+            deleteDirectory(webDirFile);
+        } else if (parentWebDirFile.exists()) {
+            deleteDirectory(parentWebDirFile);
         }
     }
 

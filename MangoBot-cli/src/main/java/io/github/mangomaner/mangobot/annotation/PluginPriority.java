@@ -10,5 +10,6 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 @Target(ElementType.METHOD)
 public @interface PluginPriority {
-    int value() default 10; // 默认优先级为10
+    int value() default 100; // 默认优先级为100
+
 }

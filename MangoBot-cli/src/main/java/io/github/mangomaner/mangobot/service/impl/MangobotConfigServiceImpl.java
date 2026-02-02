@@ -59,7 +59,7 @@ public class MangobotConfigServiceImpl extends ServiceImpl<MangobotConfigMapper,
                 map.put(config.getConfigKey(), config.getConfigValue());
             }
             globalConfigCache.refreshAll(map);
-            log.debug("配置缓存已同步，当前加载 {} 项配置", map.size());
+            log.info("配置缓存已同步，当前加载 {} 项配置", map.size());
         } catch (Exception e) {
             log.error("定时刷新配置缓存失败", e);
         }

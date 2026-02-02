@@ -46,7 +46,7 @@ public class MessageHandler {
     }
 
     @MangoBotEventListener
-    public boolean onConfigChange(ConfigChangeEvent event) {
+    public boolean onConfigChange(ConfigChangeEvent event) {    
         log.info("收到配置变更通知: key={}, value={}", event.getKey(), event.getValue());
         return true;
     }
