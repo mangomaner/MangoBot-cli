@@ -3,7 +3,9 @@ package io.github.mangomaner.mangobot.config;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.model.chat.ChatLanguageModel;
+import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
+import dev.langchain4j.model.openai.OpenAiEmbeddingModel;
 import io.github.mangomaner.mangobot.annotation.messageHandler.MangoBotEventListener;
 import io.github.mangomaner.mangobot.manager.event.ConfigChangeEvent;
 import lombok.extern.slf4j.Slf4j;
@@ -43,27 +45,29 @@ public class AiModelManager {
 
         try {
             ModelConfig config = parseModelConfig(event.getValue());
-            ChatLanguageModel model = createOpenAiChatModel(config);
 
-            switch (key) {
-                case MAIN_MODEL_KEY:
-                    AiConfig.setMainModel(model);
-                    log.debug("Main model 更新: {}", config.modelName);
-                    break;
-                case ASSISTANT_MODEL_KEY:
-                    AiConfig.setAssistantModel(model);
-                    log.debug("Assistant model 更新: {}", config.modelName);
-                    break;
-                case IMAGE_MODEL_KEY:
-                    AiConfig.setImageModel(model);
-                    log.debug("Image model 更新: {}", config.modelName);
-                    break;
-                case EmbeddingModelKey:
-                    AiConfig.setEmbeddingModel(model);
-                    log.debug("Embedding model 配置: {}", config.modelName);
-                    break;
-                default:
-                    throw new IllegalStateException("Unexpected value: " + key);
+            if (EmbeddingModelKey.equals(key)) {
+                EmbeddingModel model = createOpenAiEmbeddingModel(config);
+                AiConfig.setEmbeddingModel(model);
+                log.debug("Embedding model 配置: {}", config.modelName);
+            } else {
+                ChatLanguageModel model = createOpenAiChatModel(config);
+                switch (key) {
+                    case MAIN_MODEL_KEY:
+                        AiConfig.setMainModel(model);
+                        log.debug("Main model 更新: {}", config.modelName);
+                        break;
+                    case ASSISTANT_MODEL_KEY:
+                        AiConfig.setAssistantModel(model);
+                        log.debug("Assistant model 更新: {}", config.modelName);
+                        break;
+                    case IMAGE_MODEL_KEY:
+                        AiConfig.setImageModel(model);
+                        log.debug("Image model 更新: {}", config.modelName);
+                        break;
+                    default:
+                        throw new IllegalStateException("Unexpected value: " + key);
+                }
             }
         } catch (Exception e) {
             log.error("Failed to update AI model for key: {}", key, e);
@@ -92,6 +96,14 @@ public class AiModelManager {
     // 创建模型实例
     private ChatLanguageModel createOpenAiChatModel(ModelConfig config) {
         return OpenAiChatModel.builder()
+                .baseUrl(config.baseUrl)
+                .apiKey(config.apiKey)
+                .modelName(config.modelName)
+                .build();
+    }
+
+    private EmbeddingModel createOpenAiEmbeddingModel(ModelConfig config) {
+        return OpenAiEmbeddingModel.builder()
                 .baseUrl(config.baseUrl)
                 .apiKey(config.apiKey)
                 .modelName(config.modelName)

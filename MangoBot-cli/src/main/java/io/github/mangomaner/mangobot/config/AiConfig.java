@@ -1,6 +1,7 @@
 package io.github.mangomaner.mangobot.config;
 
 import dev.langchain4j.model.chat.ChatLanguageModel;
+import dev.langchain4j.model.embedding.EmbeddingModel;
 import lombok.Getter;
 
 /**
@@ -20,7 +21,7 @@ public class AiConfig {
     @Getter
     private static volatile ChatLanguageModel imageModel = null;
     @Getter
-    private static volatile ChatLanguageModel embeddingModel = null;
+    private static volatile EmbeddingModel embeddingModel = null;
 
     // 包级私有 Setter，仅供同包下的 Manager 调用
     static void setMainModel(ChatLanguageModel model) {
@@ -35,7 +36,7 @@ public class AiConfig {
         imageModel = model;
     }
 
-    static void setEmbeddingModel(ChatLanguageModel model) {
+    static void setEmbeddingModel(EmbeddingModel model) {
         embeddingModel = model;
     }
 }
