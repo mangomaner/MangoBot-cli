@@ -372,13 +372,11 @@ CREATE TABLE agent_mcp_tool_config (
 -- 平台连接配置表
 -- ============================================
 
--- OneBot 平台配置表：存储 OneBot WebSocket 服务器配置
+-- OneBot 平台配置表：存储 OneBot WebSocket 服务器配置（url 为唯一地址来源）
 CREATE TABLE IF NOT EXISTS onebot_config (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     name            TEXT NOT NULL,                   -- 配置名称
-    host            TEXT NOT NULL DEFAULT '0.0.0.0', -- WebSocket 服务器监听地址
-    port            INTEGER NOT NULL DEFAULT 8080,   -- WebSocket 服务器监听端口
-    path            TEXT,                            -- WebSocket 路径（可选）
+    url             TEXT NOT NULL,                   -- WebSocket 服务器地址（ws://host:port/path）
     token           TEXT,                            -- 访问令牌（可选）
     protocol_type   TEXT NOT NULL,                   -- 协议类型：onebot_qq, telegram, discord 等
     enabled         INTEGER DEFAULT 0,               -- 是否启用：0-禁用, 1-启用
@@ -394,8 +392,8 @@ CREATE INDEX IF NOT EXISTS idx_onebot_config_enabled ON onebot_config (enabled);
 CREATE INDEX IF NOT EXISTS idx_onebot_config_protocol ON onebot_config (protocol_type);
 
 -- OneBot 配置初始数据
-INSERT INTO onebot_config (name, host, port, path, token, protocol_type, enabled, description) VALUES
-    ('默认配置', '0.0.0.0', 8080, NULL, NULL, 'onebot_qq', 0, '默认 OneBot WebSocket 服务器配置');
+INSERT INTO onebot_config (name, url, token, protocol_type, enabled, description) VALUES
+    ('默认配置', 'ws://0.0.0.0:8080', NULL, 'onebot_qq', 0, '默认 OneBot WebSocket 服务器配置');
 
 -- ========================================
 -- 4. Skill 配置表

@@ -8,6 +8,7 @@ import io.github.mangomaner.mangobot.adapter.onebot.model.dto.UpdateOneBotConfig
 import io.github.mangomaner.mangobot.adapter.model.enums.ConnectionStatus;
 import io.github.mangomaner.mangobot.adapter.onebot.model.vo.OneBotConfigVO;
 import io.github.mangomaner.mangobot.adapter.onebot.service.OneBotConfigService;
+import io.github.mangomaner.mangobot.adapter.onebot.util.ConnectionUrlUtil;
 import io.github.mangomaner.mangobot.system.common.ErrorCode;
 import io.github.mangomaner.mangobot.infra.websocket.WebSocketServerManager;
 import io.github.mangomaner.mangobot.system.exception.BusinessException;
@@ -50,6 +51,7 @@ public class OneBotConfigServiceImpl extends ServiceImpl<OneBotConfigMapper, One
     public Long createConfig(CreateOneBotConfigRequest request) {
         OneBotConfig config = new OneBotConfig();
         BeanUtils.copyProperties(request, config);
+        config.setUrl(normalizeUrl(request.getUrl()));
         config.setProtocolType(PlatformType.ONEBOT_QQ.getCode());
         config.setEnabled(0);
         config.setConnectionStatus(ConnectionStatus.NOT_STARTED.getCode());
@@ -72,14 +74,8 @@ public class OneBotConfigServiceImpl extends ServiceImpl<OneBotConfigMapper, One
         if (request.getName() != null) {
             config.setName(request.getName());
         }
-        if (request.getHost() != null) {
-            config.setHost(request.getHost());
-        }
-        if (request.getPort() != null) {
-            config.setPort(request.getPort());
-        }
-        if (request.getPath() != null) {
-            config.setPath(request.getPath());
+        if (request.getUrl() != null) {
+            config.setUrl(normalizeUrl(request.getUrl()));
         }
         if (request.getToken() != null) {
             config.setToken(request.getToken());
@@ -169,6 +165,14 @@ public class OneBotConfigServiceImpl extends ServiceImpl<OneBotConfigMapper, One
         return convertToVO(config);
     }
 
+    private String normalizeUrl(String url) {
+        try {
+            return ConnectionUrlUtil.normalize(url);
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, e.getMessage());
+        }
+    }
+
     private OneBotConfigVO convertToVO(OneBotConfig config) {
         OneBotConfigVO vo = new OneBotConfigVO();
         BeanUtils.copyProperties(config, vo);
@@ -206,14 +210,14 @@ public class OneBotConfigServiceImpl extends ServiceImpl<OneBotConfigMapper, One
                     config.setUpdatedAt(System.currentTimeMillis());
                     updateById(config);
                     successCount++;
-                    log.info("WebSocket 服务器启动成功: {} ({}:{})", config.getName(), config.getHost(), config.getPort());
+                    log.info("WebSocket 服务器启动成功: {} ({})", config.getName(), config.getUrl());
                 } else {
                     log.info("WebSocket 服务器已在运行中: {}", config.getName());
                     successCount++;
                 }
             } catch (Exception e) {
                 failCount++;
-                log.error("WebSocket 服务器启动失败: {} ({}:{}) - {}", config.getName(), config.getHost(), config.getPort(), e.getMessage());
+                log.error("WebSocket 服务器启动失败: {} ({}) - {}", config.getName(), config.getUrl(), e.getMessage());
                 try {
                     config.setConnectionStatus(ConnectionStatus.ERROR.getCode());
                     config.setUpdatedAt(System.currentTimeMillis());

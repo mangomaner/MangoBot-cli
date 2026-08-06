@@ -13,14 +13,8 @@ public class UpdateOneBotConfigRequest {
     @Schema(description = "配置名称")
     private String name;
 
-    @Schema(description = "WebSocket 服务器监听地址")
-    private String host;
-
-    @Schema(description = "WebSocket 服务器监听端口")
-    private Integer port;
-
-    @Schema(description = "WebSocket 路径")
-    private String path;
+    @Schema(description = "WebSocket 服务器地址（ws://host:port/path）")
+    private String url;
 
     @Schema(description = "访问令牌")
     private String token;

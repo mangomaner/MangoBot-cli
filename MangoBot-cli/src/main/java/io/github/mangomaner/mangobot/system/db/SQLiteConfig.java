@@ -61,23 +61,44 @@ public class SQLiteConfig {
         try (Connection connection = dataSource.getConnection()) {
             ensureColumn(connection, "chat_session", "custom_prompt",
                     "ALTER TABLE chat_session ADD COLUMN custom_prompt TEXT");
+            migrateOneBotConfigUrl(connection);
         } catch (Exception e) {
-            log.warn("增量迁移失败：chat_session.custom_prompt", e);
+            log.warn("增量迁移失败", e);
         }
     }
 
-    private void ensureColumn(Connection connection, String table, String column, String alterSql) throws Exception {
-        boolean exists = false;
+    /** 存量 onebot_config 迁移：新增 url 列并从 host/port/path 回填，随后移除旧列 */
+    private void migrateOneBotConfigUrl(Connection connection) throws Exception {
+        try (Statement statement = connection.createStatement()) {
+            boolean hasHost = columnExists(connection, "onebot_config", "host");
+            if (hasHost) {
+                if (!columnExists(connection, "onebot_config", "url")) {
+                    statement.execute("ALTER TABLE onebot_config ADD COLUMN url TEXT");
+                    statement.execute("UPDATE onebot_config SET url = 'ws://' || host || ':' || port || COALESCE(NULLIF(path, ''), '') WHERE url IS NULL OR url = ''");
+                    log.info("增量迁移：onebot_config 增加列 url 并从 host/port/path 回填");
+                }
+                statement.execute("ALTER TABLE onebot_config DROP COLUMN host");
+                statement.execute("ALTER TABLE onebot_config DROP COLUMN port");
+                statement.execute("ALTER TABLE onebot_config DROP COLUMN path");
+                log.info("增量迁移：onebot_config 移除旧列 host/port/path");
+            }
+        }
+    }
+
+    private boolean columnExists(Connection connection, String table, String column) throws Exception {
         try (Statement statement = connection.createStatement();
              var rs = statement.executeQuery("PRAGMA table_info(" + table + ")")) {
             while (rs.next()) {
                 if (column.equalsIgnoreCase(rs.getString("name"))) {
-                    exists = true;
-                    break;
+                    return true;
                 }
             }
         }
-        if (!exists) {
+        return false;
+    }
+
+    private void ensureColumn(Connection connection, String table, String column, String alterSql) throws Exception {
+        if (!columnExists(connection, table, column)) {
             try (Statement statement = connection.createStatement()) {
                 statement.execute(alterSql);
                 log.info("增量迁移：{} 增加列 {}", table, column);

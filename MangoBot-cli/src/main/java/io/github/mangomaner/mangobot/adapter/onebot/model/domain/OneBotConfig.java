@@ -17,11 +17,7 @@ public class OneBotConfig implements Serializable {
 
     private String name;
 
-    private String host;
-
-    private Integer port;
-
-    private String path;
+    private String url;
 
     private String token;
 
