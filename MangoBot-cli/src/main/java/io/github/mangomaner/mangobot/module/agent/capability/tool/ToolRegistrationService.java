@@ -10,7 +10,6 @@ import io.github.mangomaner.mangobot.module.agent.model.enums.SessionSource;
 import io.github.mangomaner.mangobot.module.agent.service.AgentJavaToolConfigService;
 import io.github.mangomaner.mangobot.module.agent.tools.CalculatorTool;
 import io.github.mangomaner.mangobot.module.agent.tools.DateTimeTool;
-import io.github.mangomaner.mangobot.message_handler.response.tools.GroupImageSendTool;
 import io.github.mangomaner.mangobot.message_handler.response.tools.GroupMessageSendTool;
 import io.github.mangomaner.mangobot.message_handler.response.tools.PrivateMessageSendTool;
 import io.github.mangomaner.mangobot.annotation.MangoTool;
@@ -81,7 +80,6 @@ public class ToolRegistrationService {
         registerBuiltInTool(WriteFileTool.class, "文件写入工具");
         registerBuiltInToolFactory(ShellCommandTool.class, "Shell 命令工具");
         registerBuiltInTool(GroupMessageSendTool.class, "群聊回复工具", List.of(SessionSource.GROUP));
-        registerBuiltInTool(GroupImageSendTool.class, "群聊表情回复工具", List.of(SessionSource.GROUP));
         registerBuiltInTool(PrivateMessageSendTool.class, "私聊回复工具", List.of(SessionSource.PRIVATE));
 
         log.info("Built-in tools registered via MangoToolApi");

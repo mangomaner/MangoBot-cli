@@ -5,9 +5,6 @@ import io.agentscope.core.event.ModelCallEndEvent;
 import io.agentscope.core.event.ToolCallStartEvent;
 import io.agentscope.core.message.UserMessage;
 import io.agentscope.harness.agent.HarnessAgent;
-import io.github.mangomaner.mangobot.adapter.onebot.handler.outbound.build_sending_message.OneBotMessageBuilder;
-import io.github.mangomaner.mangobot.adapter.onebot.handler.outbound.build_sending_message.OneBotSendingMessage;
-import io.github.mangomaner.mangobot.api.MangoOneBotApi;
 import io.github.mangomaner.mangobot.api.context.ChatContext;
 import io.github.mangomaner.mangobot.api.context.state.ToolExecuteState;
 import io.github.mangomaner.mangobot.module.agent.core.AgentPathKeys;
@@ -144,6 +141,7 @@ public class ChatOrchestrator {
                                   String message, String senderName, int attempt,
                                   AtomicInteger generation, int myGeneration) {
         AtomicBoolean sendToolInvoked = new AtomicBoolean(false);
+        AtomicBoolean silenceToolInvoked = new AtomicBoolean(false);
         StringBuilder assistantBuffer = new StringBuilder();
         // 一轮 ReAct 可能有多次模型调用：累计全部调用的用量，整轮结束时输出一次总和
         AtomicReference<TokenUsageVO> totalUsage = new AtomicReference<>();
@@ -155,8 +153,13 @@ public class ChatOrchestrator {
                                 message),
                         context)
                 .flatMap(event -> {
-                    if (event instanceof ToolCallStartEvent start && isSendTool(start.getToolCallName())) {
-                        sendToolInvoked.set(true);
+                    if (event instanceof ToolCallStartEvent start) {
+                        if (isSendTool(start.getToolCallName())) {
+                            sendToolInvoked.set(true);
+                        }
+                        if (isSilenceTool(start.getToolCallName())) {
+                            silenceToolInvoked.set(true);
+                        }
                     }
                     if (event instanceof ModelCallEndEvent end) {
                         TokenUsageVO vo = TokenUsageUtils.extractFromChatUsage(end.getUsage());
@@ -209,22 +212,13 @@ public class ChatOrchestrator {
 
             boolean stillCurrent = generation.get() == myGeneration;
             boolean sendInvoked = sendToolInvoked.get();
+            boolean silenceInvoked = silenceToolInvoked.get();
             String plainText = extractPlainText(assistantBuffer.toString());
-
-            // 模型直接输出了文本但没有调用发送工具：自动代为发送，确保回复真正送达
-            if (stillCurrent && !sendInvoked && StringUtils.hasText(plainText)
-                    && session.getSource() != SessionSource.WEB) {
-                try {
-                    sendReply(session, plainText);
-                    log.info("Auto-sent reply for session {}: {}", session.getId(), plainText);
-                } catch (Exception e) {
-                    log.error("Failed to auto-send reply for session: {}", session.getId(), e);
-                }
-            }
 
             // 私聊且既没调用发送工具也没生成文本：重试一次（若已被更新的调用打断则不再重试）
             boolean needRetry = session.getSource() == SessionSource.PRIVATE
                     && !sendInvoked
+                    && !silenceInvoked
                     && !StringUtils.hasText(plainText)
                     && attempt < MAX_REPLY_RETRY
                     && stillCurrent;
@@ -247,6 +241,11 @@ public class ChatOrchestrator {
         return toolName != null && toolName.toLowerCase(Locale.ROOT).startsWith("send");
     }
 
+    /** 沉默工具：模型主动选择不回复（staySilent），需放行自动代发与私聊强制回复 */
+    private static boolean isSilenceTool(String toolName) {
+        return toolName != null && toolName.toLowerCase(Locale.ROOT).startsWith("stay");
+    }
+
     /**
      * 从累积的 SSE 内容中提取纯文本（去掉各类标签）
      */
@@ -261,32 +260,6 @@ public class ChatOrchestrator {
                 .replace("\u0000", "\n")
                 .trim();
         return text;
-    }
-
-    /**
-     * 代发回复：模型输出了文本但没调用发送工具时，直接发送
-     */
-    private void sendReply(ChatSessionVO session, String text) {
-        if (session.getSource() != SessionSource.GROUP && session.getSource() != SessionSource.PRIVATE) {
-            return;
-        }
-        if (!isNumeric(session.getBotId()) || !isNumeric(session.getChatId())) {
-            log.warn("Cannot auto-send reply: invalid target for session {} (botId={}, chatId={})",
-                    session.getId(), session.getBotId(), session.getChatId());
-            return;
-        }
-        OneBotSendingMessage message = OneBotMessageBuilder.create().text(text).build();
-        long botId = Long.parseLong(session.getBotId());
-        long targetId = Long.parseLong(session.getChatId());
-        if (session.getSource() == SessionSource.GROUP) {
-            MangoOneBotApi.sendGroupMsg(botId, targetId, message);
-        } else {
-            MangoOneBotApi.sendPrivateMsg(botId, targetId, message);
-        }
-    }
-
-    private static boolean isNumeric(String value) {
-        return value != null && value.matches("\\d+");
     }
 
     private static long safe(Long value) {
