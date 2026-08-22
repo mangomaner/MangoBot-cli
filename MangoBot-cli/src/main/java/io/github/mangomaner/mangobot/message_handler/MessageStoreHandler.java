@@ -1,6 +1,8 @@
 package io.github.mangomaner.mangobot.message_handler;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.mangomaner.mangobot.adapter.onebot.utils.OneBotMessageFileProcessor;
+import io.github.mangomaner.mangobot.adapter.onebot.utils.OneBotMessageParser;
 import io.github.mangomaner.mangobot.annotation.PluginPriority;
 import io.github.mangomaner.mangobot.annotation.messageHandler.MangoBotEventListener;
 import io.github.mangomaner.mangobot.events.configuration.BotConfigChangedEvent;
@@ -10,8 +12,6 @@ import io.github.mangomaner.mangobot.module.message.groupMessage.service.GroupMe
 import io.github.mangomaner.mangobot.module.message.model.domain.GroupMessages;
 import io.github.mangomaner.mangobot.module.message.model.domain.PrivateMessages;
 import io.github.mangomaner.mangobot.module.message.privateMessage.service.PrivateMessagesService;
-import io.github.mangomaner.mangobot.adapter.onebot.utils.OneBotMessageParser;
-import io.github.mangomaner.mangobot.adapter.onebot.utils.OneBotMessageFileProcessor;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -89,7 +89,7 @@ public class MessageStoreHandler {
     }
 
     @MangoBotEventListener
-    public boolean onConfigChange(BotConfigChangedEvent event) {    
+    public boolean onConfigChange(BotConfigChangedEvent event) {
         log.info("收到 Bot 配置变更通知: key={}, value={}", event.getConfigKey(), event.getNewValue());
         return true;
     }

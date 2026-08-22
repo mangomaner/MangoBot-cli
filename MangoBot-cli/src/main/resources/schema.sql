@@ -165,6 +165,8 @@ INSERT INTO bot_configs (bot_id, config_key, config_value, config_type, metadata
     (NULL, 'private.whitelist', '[]', 'PRIVATE_LIST_SELECTOR', '{"listType":"private"}', '私聊白名单', '用户QQ列表', 'BW_list', 1),
     (NULL, 'private.blacklist', '[]', 'PRIVATE_LIST_SELECTOR', '{"listType":"private"}', '私聊黑名单', '用户QQ列表', 'BW_list', 1),
     (NULL, 'private.enable_list', 'true', 'BOOLEAN', NULL, '启用私聊黑白名单', '', 'BW_list', 1),
+    (NULL, 'group.record_list', '[]', 'GROUP_LIST_SELECTOR', '{"listType":"group"}', '群聊消息记录名单', '名单内的群聊始终记录消息', 'message_record', 1),
+    (NULL, 'private.record_list', '[]', 'PRIVATE_LIST_SELECTOR', '{"listType":"private"}', '私聊消息记录名单', '名单内的私聊始终记录消息', 'message_record', 1),
     (NULL, 'bot.markdown_to_txt', 'true', 'BOOLEAN', NULL, '将md格式转为纯文本发送', '', 'format', 1),
     (NULL, 'prompt.editor', '/prompt/edit', 'LINK', NULL, '系统提示词编辑入口', '进入统一的三层提示词编辑页（框架规范 / 人格与行为 / 风格数据集）, 'prompt', 0);
 -- 上述列表示例：["123456789","1011121314"]，true为白名单，false为黑名单

@@ -8,6 +8,7 @@ import io.github.mangomaner.mangobot.api.MangoConfigApi;
 import io.github.mangomaner.mangobot.adapter.onebot.model.event.OneBotEvent;
 import io.github.mangomaner.mangobot.events.onebot.message.OneBotGroupMessageEvent;
 import io.github.mangomaner.mangobot.events.onebot.message.OneBotPrivateMessageEvent;
+import io.github.mangomaner.mangobot.message_handler.MessageStoreHandler;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -30,6 +31,9 @@ public class MangoEventPublisher {
 
     @Resource
     private ObjectMapper objectMapper;
+
+    @Resource
+    private MessageStoreHandler messageStoreHandler;
 
     private final Map<Class<?>, List<ListenerMethod>> listenerCache = new ConcurrentHashMap<>();
     private final ThreadPoolExecutor executor = new ThreadPoolExecutor(1, 10, 1000, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(), new ThreadPoolExecutor.CallerRunsPolicy());
@@ -66,6 +70,10 @@ public class MangoEventPublisher {
     public void publish(OneBotEvent event) {
         if (shouldBlockEvent(event)) {
             log.debug("事件被黑白名单拦截: {}", event.getClass().getSimpleName());
+            // 名单内的聊天始终记录消息：拦截时仍派发强制记录
+            if (shouldForceRecord(event)) {
+                executor.execute(() -> forceRecord(event));
+            }
             return;
         }
 
@@ -145,13 +153,42 @@ public class MangoEventPublisher {
     }
 
     /**
+     * 判断被黑白名单拦截的事件是否仍需要记录（聊天命中消息记录名单）。
+     */
+    private boolean shouldForceRecord(OneBotEvent event) {
+        if (event instanceof OneBotGroupMessageEvent groupEvent) {
+            return isInRecordList("group.record_list", groupEvent.getSelfId(), groupEvent.getGroupId());
+        }
+        if (event instanceof OneBotPrivateMessageEvent privateEvent) {
+            return isInRecordList("private.record_list", privateEvent.getSelfId(), privateEvent.getUserId());
+        }
+        return false;
+    }
+
+    /**
+     * 强制记录：被黑白名单拦截但命中消息记录名单的聊天，仍保存消息记录。
+     */
+    private void forceRecord(OneBotEvent event) {
+        if (event instanceof OneBotGroupMessageEvent groupEvent) {
+            messageStoreHandler.onGroupMessage(groupEvent);
+        } else if (event instanceof OneBotPrivateMessageEvent privateEvent) {
+            messageStoreHandler.onPrivateMessage(privateEvent);
+        }
+    }
+
+    private boolean isInRecordList(String configKey, Long botId, long id) {
+        String listValue = MangoConfigApi.getBotConfigValue(configKey, botId, "[]");
+        return parseJsonArray(listValue).contains(String.valueOf(id));
+    }
+
+    /**
      * 解析 JSON 数组字符串为 List
      */
     private List<String> parseJsonArray(String json) {
         try {
             return objectMapper.readValue(json, new TypeReference<List<String>>() {});
         } catch (Exception e) {
-            log.warn("解析黑白名单 JSON 失败: {}", json, e);
+            log.warn("解析名单 JSON 失败: {}", json, e);
             return Collections.emptyList();
         }
     }
