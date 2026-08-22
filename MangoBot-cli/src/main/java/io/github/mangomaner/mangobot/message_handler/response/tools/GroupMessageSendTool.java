@@ -19,6 +19,9 @@ import java.util.Random;
 @MangoTool(name = "GroupMessageSend", description = "发送群聊消息", category = "Group")
 public class GroupMessageSendTool {
 
+    /** 同一条消息内连续调用发送工具超过该次数后开始提醒（不强制停止） */
+    private static final int REPLY_TOOL_WARN_THRESHOLD = 5;
+
     private final Random random = new Random();
 
     @Tool(description = "发送文本消息")
@@ -28,15 +31,16 @@ public class GroupMessageSendTool {
             ChatContext context
     ) {
         ToolExecuteState state = context.getToolExecuteState();
-        if (state.getToolExecuteCount("sendTextMessage") > 0) {
-            return "你已调用过该方法发送消息，请遵循规则，禁止重复调用，请结束回复或发送表情";
-        }
+        int sentCount = state.getToolExecuteCount("sendTextMessage");
         if (context.getSource() != null && context.getSource() != SessionSource.GROUP) {
             return "该工具仅用于群聊会话，请改用私聊发送工具";
         }
         OneBotSendingMessage sendMessage = OneBotMessageBuilder.create().text(message).build();
         MangoOneBotApi.sendGroupMsg(Long.parseLong(context.getBotId()), Long.parseLong(context.getChatId()), sendMessage);
         state.addToolExecuteCount("sendTextMessage");
+        if (sentCount >= REPLY_TOOL_WARN_THRESHOLD) {
+            return "发送成功。注意：你已连续调用发送工具多次，可能过于频繁；本条消息仍会发送，请把要说的话尽快说完，然后结束本轮回复";
+        }
         return "发送成功";
     }
 
@@ -84,11 +88,17 @@ public class GroupMessageSendTool {
             return "表情包文件路径无效";
         }
 
+        ToolExecuteState state = context.getToolExecuteState();
+        int sentCount = state.getToolExecuteCount("sendMemeImage");
         OneBotSendingMessage sendMessage = OneBotMessageBuilder.create()
                 .image(FileUtils.getBaseDirectory().normalize().toString().replace('\\', '/') + "/" + imagePath, true)
                 .build();
 
         MangoOneBotApi.sendGroupMsg(Long.parseLong(context.getBotId()), Long.parseLong(context.getChatId()), sendMessage);
+        state.addToolExecuteCount("sendMemeImage");
+        if (sentCount >= REPLY_TOOL_WARN_THRESHOLD) {
+            return "表情包发送成功。注意：你已连续发送多条表情包，可能过于频繁；仍会照常发送，请尽快结束本轮回复";
+        }
         return "表情包发送成功";
     }
 

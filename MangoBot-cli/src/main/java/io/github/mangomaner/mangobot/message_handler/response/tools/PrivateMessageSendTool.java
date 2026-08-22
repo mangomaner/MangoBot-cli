@@ -22,6 +22,9 @@ import java.util.Random;
 @MangoTool(name = "PrivateMessageSend", description = "发送私聊消息", category = "Private")
 public class PrivateMessageSendTool {
 
+    /** 同一条消息内连续调用发送工具超过该次数后开始提醒（不强制停止） */
+    private static final int REPLY_TOOL_WARN_THRESHOLD = 5;
+
     private final Random random = new Random();
 
     @Tool(description = "发送文字消息（私聊）")
@@ -30,9 +33,7 @@ public class PrivateMessageSendTool {
             String message,
             ChatContext context) {
         ToolExecuteState state = context.getToolExecuteState();
-        if (state.getToolExecuteCount("sendPrivateTextMessage") > 0) {
-            return "你已调用过该方法发送消息，请结束回复";
-        }
+        int sentCount = state.getToolExecuteCount("sendPrivateTextMessage");
         if (context.getSource() != null && context.getSource() != SessionSource.PRIVATE) {
             return "该工具仅用于私聊会话，请改用群聊发送工具";
         }
@@ -42,6 +43,9 @@ public class PrivateMessageSendTool {
                 Long.parseLong(context.getChatId()),
                 sendMessage);
         state.addToolExecuteCount("sendPrivateTextMessage");
+        if (sentCount >= REPLY_TOOL_WARN_THRESHOLD) {
+            return "发送成功。注意：你已连续调用发送工具多次，可能过于频繁；本条消息仍会发送，请把要说的话尽快说完，然后结束本轮回复";
+        }
         return "发送成功";
     }
 
@@ -88,6 +92,8 @@ public class PrivateMessageSendTool {
             return "表情包文件路径无效";
         }
 
+        ToolExecuteState state = context.getToolExecuteState();
+        int sentCount = state.getToolExecuteCount("sendPrivateMemeImage");
         OneBotSendingMessage sendMessage = OneBotMessageBuilder.create()
                 .image(FileUtils.getBaseDirectory().normalize().toString().replace('\\', '/') + "/" + imagePath, true)
                 .build();
@@ -96,6 +102,10 @@ public class PrivateMessageSendTool {
                 Long.parseLong(context.getBotId()),
                 Long.parseLong(context.getChatId()),
                 sendMessage);
+        state.addToolExecuteCount("sendPrivateMemeImage");
+        if (sentCount >= REPLY_TOOL_WARN_THRESHOLD) {
+            return "表情包发送成功。注意：你已连续发送多条表情包，可能过于频繁；仍会照常发送，请尽快结束本轮回复";
+        }
         return "表情包发送成功";
     }
 

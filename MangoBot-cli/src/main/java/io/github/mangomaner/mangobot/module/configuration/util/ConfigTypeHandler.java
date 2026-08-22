@@ -37,6 +37,7 @@ public class ConfigTypeHandler {
                 case URL:
                 case PASSWORD:
                 case COLOR:
+                case LINK:
                     return value.toString();
 
                 case INTEGER:
@@ -157,6 +158,7 @@ public class ConfigTypeHandler {
                 case URL:
                 case PASSWORD:
                 case COLOR:
+                case LINK:
                 case SELECT:
                     return (T) value;
 

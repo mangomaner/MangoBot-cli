@@ -167,6 +167,10 @@ public class BotConfigServiceImpl extends ServiceImpl<BotConfigMapper, BotConfig
         if (config == null) {
             return null;
         }
+        if (request.getConfigValue() != null && !isEditable(config)) {
+            log.warn("配置不可编辑，拒绝修改值: id={}, key={}", config.getId(), config.getConfigKey());
+            return null;
+        }
 
         String oldValue = config.getConfigValue();
 
@@ -223,6 +227,12 @@ public class BotConfigServiceImpl extends ServiceImpl<BotConfigMapper, BotConfig
         if (botId == null) {
             return updateConfigValue(configKey, configValue);
         }
+
+        // 不可编辑的默认配置既不复制到 Bot 专属，也不允许修改
+        if (!isEditableDefault(configKey)) {
+            log.warn("配置不可编辑，拒绝更新: botId={}, key={}", botId, configKey);
+            return false;
+        }
         
         LambdaQueryWrapper<BotConfig> botWrapper = new LambdaQueryWrapper<>();
         botWrapper.eq(BotConfig::getConfigKey, configKey)
@@ -234,7 +244,7 @@ public class BotConfigServiceImpl extends ServiceImpl<BotConfigMapper, BotConfig
             if (!configTypeHandler.validate(configType, configValue)) {
                 log.warn("配置值验证失败: type={}, value={}", configType, configValue);
             }
-            
+
             String oldValue = botConfig.getConfigValue();
             botConfig.setConfigValue(configValue);
             botConfig.setUpdatedAt(System.currentTimeMillis());
@@ -265,6 +275,9 @@ public class BotConfigServiceImpl extends ServiceImpl<BotConfigMapper, BotConfig
             List<BotConfig> defaultConfigs = this.list(defaultListWrapper);
             
             for (BotConfig defaultConfig : defaultConfigs) {
+                if (!isEditable(defaultConfig)) {
+                    continue;
+                }
                 BotConfig newConfig = new BotConfig();
                 newConfig.setBotId(botId);
                 newConfig.setConfigKey(defaultConfig.getConfigKey());
@@ -293,12 +306,12 @@ public class BotConfigServiceImpl extends ServiceImpl<BotConfigMapper, BotConfig
             if (defaultConfig == null) {
                 return false;
             }
-            
+
             ConfigType configType = ConfigType.fromCode(defaultConfig.getConfigType());
             if (!configTypeHandler.validate(configType, configValue)) {
                 log.warn("配置值验证失败: type={}, value={}", configType, configValue);
             }
-            
+
             BotConfig newConfig = new BotConfig();
             newConfig.setBotId(botId);
             newConfig.setConfigKey(configKey);
@@ -328,12 +341,12 @@ public class BotConfigServiceImpl extends ServiceImpl<BotConfigMapper, BotConfig
         if (botConfig == null) {
             return false;
         }
-        
+
         ConfigType configType = ConfigType.fromCode(botConfig.getConfigType());
         if (!configTypeHandler.validate(configType, configValue)) {
             log.warn("配置值验证失败: type={}, value={}", configType, configValue);
         }
-        
+
         String oldValue = botConfig.getConfigValue();
         botConfig.setConfigValue(configValue);
         botConfig.setUpdatedAt(System.currentTimeMillis());
@@ -361,6 +374,10 @@ public class BotConfigServiceImpl extends ServiceImpl<BotConfigMapper, BotConfig
                .isNull(BotConfig::getBotId);
         BotConfig config = this.getOne(wrapper);
         if (config == null) {
+            return false;
+        }
+        if (!isEditable(config)) {
+            log.warn("配置不可编辑，拒绝更新: key={}", configKey);
             return false;
         }
 
@@ -400,6 +417,18 @@ public class BotConfigServiceImpl extends ServiceImpl<BotConfigMapper, BotConfig
             log.info("删除 Bot 配置成功: botId={}, key={}", config.getBotId(), config.getConfigKey());
         }
         return result;
+    }
+
+    private boolean isEditable(BotConfig config) {
+        return config.getEditable() == null || config.getEditable() == 1;
+    }
+
+    private boolean isEditableDefault(String configKey) {
+        LambdaQueryWrapper<BotConfig> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(BotConfig::getConfigKey, configKey)
+               .isNull(BotConfig::getBotId);
+        BotConfig config = this.getOne(wrapper);
+        return config == null || isEditable(config);
     }
 
     private BotConfigVO convertToVO(BotConfig config) {

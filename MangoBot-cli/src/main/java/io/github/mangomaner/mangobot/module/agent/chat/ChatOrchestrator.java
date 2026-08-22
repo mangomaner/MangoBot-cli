@@ -18,7 +18,6 @@ import io.github.mangomaner.mangobot.module.agent.model.vo.ChatSessionVO;
 import io.github.mangomaner.mangobot.module.agent.model.vo.TokenUsageVO;
 import io.github.mangomaner.mangobot.module.agent.service.ChatMessageWebService;
 import io.github.mangomaner.mangobot.module.agent.service.ChatSessionService;
-import io.github.mangomaner.mangobot.module.agent.service.SessionPersonaService;
 import io.github.mangomaner.mangobot.utils.TokenUsageUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -60,7 +59,6 @@ public class ChatOrchestrator {
     private final ChatMessageWebService chatMessageWebService;
     private final ChatEventMapper chatEventMapper;
     private final MemoryFlushService memoryFlushService;
-    private final SessionPersonaService sessionPersonaService;
     private final AgentDebugRecorder debugRecorder;
     private final AgentContextCapture agentContextCapture;
 
@@ -91,10 +89,6 @@ public class ChatOrchestrator {
         }
 
         ChatSessionVO session = chatSessionService.getSessionById(sessionId);
-        // 群聊/私聊：发消息前物化生效人格（定制或来源默认）到会话级 AGENTS.md
-        if (session.getSource() == SessionSource.GROUP || session.getSource() == SessionSource.PRIVATE) {
-            sessionPersonaService.materializeSessionPersona(session);
-        }
         HarnessAgent agent = agentRuntimeRegistry.getOrCreate(session.getBotId(), session.getSource());
         String userId = SessionKeys.userId(session);
         String sessionKey = SessionKeys.sessionId(session, sessionId);

@@ -1,7 +1,6 @@
 package io.github.mangomaner.mangobot.module.agent.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import io.github.mangomaner.mangobot.module.agent.model.domain.ChatMessageWeb;
 import io.github.mangomaner.mangobot.module.agent.model.domain.ChatSession;
@@ -172,38 +171,12 @@ public class ChatSessionServiceImpl extends ServiceImpl<ChatSessionMapper, ChatS
         return session == null ? null : convertToVO(session);
     }
 
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public void updateCustomPrompt(Integer id, String customPrompt) {
-        if (id == null) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "会话ID不能为空");
-        }
-        ChatSession session = this.getById(id);
-        if (session == null) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "会话不存在");
-        }
-
-        // 用 update wrapper 显式 SET，避免默认 NOT_NULL 策略下 updateById 忽略 null（清除定制时置空无效）
-        String value = StringUtils.hasText(customPrompt) ? customPrompt.trim() : null;
-        boolean updated = this.update(new LambdaUpdateWrapper<ChatSession>()
-                .eq(ChatSession::getId, id)
-                .set(ChatSession::getCustomPrompt, value)
-                .set(ChatSession::getUpdateTime, new Date()));
-        if (!updated) {
-            log.error("更新会话定制提示词失败，sessionId: {}", id);
-            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "更新会话定制提示词失败");
-        }
-        log.info("更新会话定制提示词成功，sessionId: {}", id);
-    }
-
     private ChatSessionVO convertToVO(ChatSession session) {
         if (session == null) {
             return null;
         }
         ChatSessionVO vo = new ChatSessionVO();
         BeanUtils.copyProperties(session, vo);
-        vo.setCustomPrompt(session.getCustomPrompt());
-        vo.setHasCustomPrompt(StringUtils.hasText(session.getCustomPrompt()));
 
         long messageCount = chatMessageService.count(
                 new LambdaQueryWrapper<ChatMessageWeb>()

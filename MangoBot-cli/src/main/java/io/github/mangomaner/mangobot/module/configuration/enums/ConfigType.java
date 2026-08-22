@@ -25,6 +25,7 @@ public enum ConfigType {
     COLOR("COLOR", "颜色", false),
     URL("URL", "网址链接", false),
     PASSWORD("PASSWORD", "密码", false),
+    LINK("LINK", "链接", false),
     GROUP_LIST_SELECTOR("GROUP_LIST_SELECTOR", "群列表选择器", true),
     PRIVATE_LIST_SELECTOR("PRIVATE_LIST_SELECTOR", "私聊列表选择器", true);
 

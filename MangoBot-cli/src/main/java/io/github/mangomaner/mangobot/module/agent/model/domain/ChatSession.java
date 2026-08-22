@@ -37,10 +37,6 @@ public class ChatSession implements Serializable {
     @TableField(value = "source")
     private SessionSource source;
 
-    /** 定制人格提示词（非空表示已定制，覆盖该来源默认人格） */
-    @TableField(value = "custom_prompt")
-    private String customPrompt;
-
     @TableField(value = "create_time")
     private Date createTime;
 

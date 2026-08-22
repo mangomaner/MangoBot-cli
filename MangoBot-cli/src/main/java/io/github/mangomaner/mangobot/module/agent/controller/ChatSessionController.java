@@ -1,13 +1,9 @@
 package io.github.mangomaner.mangobot.module.agent.controller;
 
 import io.github.mangomaner.mangobot.module.agent.model.dto.CreateChatSessionRequest;
-import io.github.mangomaner.mangobot.module.agent.model.dto.SetPersonaRequest;
 import io.github.mangomaner.mangobot.module.agent.model.dto.UpdateChatSessionRequest;
-import io.github.mangomaner.mangobot.module.agent.model.enums.SessionSource;
 import io.github.mangomaner.mangobot.module.agent.model.vo.ChatSessionVO;
-import io.github.mangomaner.mangobot.module.agent.model.vo.PersonaVO;
 import io.github.mangomaner.mangobot.module.agent.service.ChatSessionService;
-import io.github.mangomaner.mangobot.module.agent.service.SessionPersonaService;
 import io.github.mangomaner.mangobot.system.common.BaseResponse;
 import io.github.mangomaner.mangobot.system.common.ResultUtils;
 import io.swagger.v3.oas.annotations.Operation;
@@ -39,7 +35,6 @@ import java.util.List;
 public class ChatSessionController {
 
     private final ChatSessionService chatSessionService;
-    private final SessionPersonaService sessionPersonaService;
 
     /**
      * 创建对话会话
@@ -99,43 +94,5 @@ public class ChatSessionController {
         log.info("删除会话，sessionId: {}", id);
         chatSessionService.deleteSession(id);
         return ResultUtils.success(null);
-    }
-
-    /**
-     * 获取会话人格提示词（默认人格 + 当前定制提示词）
-     */
-    @GetMapping("/persona")
-    @Operation(summary = "获取会话人格提示词", description = "获取来源默认人格与当前定制提示词")
-    public BaseResponse<PersonaVO> getPersona(
-            @Parameter(description = "Bot ID", required = true) @RequestParam String botId,
-            @Parameter(description = "群/私聊ID", required = true) @RequestParam String chatId,
-            @Parameter(description = "会话来源：group/private/web", required = true) @RequestParam SessionSource source) {
-        log.info("获取会话人格提示词，botId: {}, chatId: {}, source: {}", botId, chatId, source);
-        return ResultUtils.success(sessionPersonaService.getPersona(botId, chatId, source));
-    }
-
-    /**
-     * 设置会话定制人格提示词（customPrompt 为 null/空白时表示清除定制）
-     */
-    @PutMapping("/persona")
-    @Operation(summary = "设置会话定制人格提示词", description = "设置后覆盖该会话来源默认人格；传空表示恢复默认")
-    public BaseResponse<PersonaVO> setPersona(@Valid @RequestBody SetPersonaRequest request) {
-        log.info("设置会话定制人格提示词，botId: {}, chatId: {}, source: {}",
-                request.getBotId(), request.getChatId(), request.getSource());
-        return ResultUtils.success(sessionPersonaService.setCustomPrompt(
-                request.getBotId(), request.getChatId(), request.getSource(), request.getCustomPrompt()));
-    }
-
-    /**
-     * 清除会话定制人格提示词，恢复来源默认人格
-     */
-    @DeleteMapping("/persona")
-    @Operation(summary = "清除会话定制人格提示词", description = "清除定制，恢复 AGENTS_GROUP/AGENTS_PRIVATE 默认人格")
-    public BaseResponse<PersonaVO> clearPersona(
-            @Parameter(description = "Bot ID", required = true) @RequestParam String botId,
-            @Parameter(description = "群/私聊ID", required = true) @RequestParam String chatId,
-            @Parameter(description = "会话来源：group/private", required = true) @RequestParam SessionSource source) {
-        log.info("清除会话定制人格提示词，botId: {}, chatId: {}, source: {}", botId, chatId, source);
-        return ResultUtils.success(sessionPersonaService.clearCustomPrompt(botId, chatId, source));
     }
 }

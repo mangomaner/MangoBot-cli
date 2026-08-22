@@ -12,12 +12,13 @@ import io.agentscope.harness.agent.HarnessAgent;
 import io.agentscope.harness.agent.filesystem.spec.LocalFilesystemSpec;
 import io.agentscope.harness.agent.memory.MemoryConfig;
 import io.agentscope.harness.agent.memory.compaction.CompactionConfig;
-import io.agentscope.harness.agent.tools.ToolsConfig;
 import io.github.mangomaner.mangobot.api.MangoModelApi;
 import io.github.mangomaner.mangobot.api.enums.ModelRole;
 import io.github.mangomaner.mangobot.module.agent.capability.mcp.McpConnectionManager;
 import io.github.mangomaner.mangobot.module.agent.capability.tool.JavaToolLoader;
 import io.github.mangomaner.mangobot.module.agent.middleware.AgentContextCapture;
+import io.github.mangomaner.mangobot.module.agent.middleware.MessageSanitizeMiddleware;
+import io.github.mangomaner.mangobot.module.agent.middleware.PromptInjectionMiddleware;
 import io.github.mangomaner.mangobot.module.agent.model.domain.AgentJavaToolConfig;
 import io.github.mangomaner.mangobot.module.agent.model.domain.AgentMcpConfig;
 import io.github.mangomaner.mangobot.module.agent.model.domain.AgentMcpToolConfig;
@@ -62,6 +63,8 @@ public class AgentRuntimeRegistry {
     private final JavaToolLoader javaToolLoader;
     private final McpConnectionManager mcpConnectionManager;
     private final AgentContextCapture agentContextCapture;
+    private final PromptInjectionMiddleware promptInjectionMiddleware;
+    private final MessageSanitizeMiddleware messageSanitizeMiddleware;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -151,9 +154,20 @@ public class AgentRuntimeRegistry {
                         .build())
                 .skillRepository(new FileSystemSkillRepository(workspaceManager.getSkillsDirectory()))
                 .skillFilter(buildSkillFilter(source))
-                .middleware(agentContextCapture);
-
-        applyToolsWhitelist(builder);
+                // 保留内置 WorkspaceContextMiddleware：注入 MEMORY.md / knowledge / 工作区清单。
+                // AGENTS.md 已退役（AgentWorkspaceManager 迁移时删除，不再播种），不会注入旧人格，
+                // 人格与回复规则仍由 PromptInjectionMiddleware 追加的三层提示词承载
+                .middleware(messageSanitizeMiddleware)
+                .middleware(promptInjectionMiddleware)
+                .middleware(agentContextCapture)
+                // 系统不使用子代理，关闭以移除 ## Subagents 提示段落与 agent_spawn/send 等工具
+                .disableSubagents()
+                // 中断发生在“模型已产出 tool_calls 但工具尚未执行”之间时，会在持久化 state 里
+                // 留下悬空的 pending tool_use，DeepSeek 会因“assistant tool_calls 后缺 tool 消息”报 400。
+                // 开启后 harness 在下次调用时自动为这些悬空工具调用补上错误结果（发生在 compaction 之前）
+                .enablePendingToolRecovery(true)
+                // 关闭 shell 执行工具（execute）：聊天机器人不应具备任意命令执行能力
+                .disableShellTool();
 
         HarnessAgent agent = builder.build();
         log.info("HarnessAgent built for bot {} source {}: workspace={}",
@@ -228,17 +242,6 @@ public class AgentRuntimeRegistry {
             return SkillFilter.none();
         }
         return SkillFilter.only(enabledSkillNames.toArray(String[]::new));
-    }
-
-    private void applyToolsWhitelist(HarnessAgent.Builder builder) {
-        AgentWorkspaceManager.ToolsWhitelist whitelist = workspaceManager.loadToolsWhitelist();
-        if (whitelist.isEmpty()) {
-            return;
-        }
-        ToolsConfig toolsConfig = new ToolsConfig();
-        toolsConfig.setAllow(whitelist.allow());
-        toolsConfig.setDeny(whitelist.deny());
-        builder.toolsConfig(toolsConfig);
     }
 
     /**

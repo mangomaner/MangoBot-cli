@@ -36,10 +36,4 @@ public class ChatSessionVO {
 
     @Schema(description = "会话来源")
     private SessionSource source;
-
-    @Schema(description = "定制人格提示词（非空表示已定制，覆盖该来源默认人格）")
-    private String customPrompt;
-
-    @Schema(description = "是否已定制人格提示词")
-    private Boolean hasCustomPrompt;
 }
