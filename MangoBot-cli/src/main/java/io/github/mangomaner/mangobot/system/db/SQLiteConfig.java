@@ -1,5 +1,8 @@
 package io.github.mangomaner.mangobot.system.db;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.mangomaner.mangobot.module.agent.core.AgentCompactionConfig;
+import io.github.mangomaner.mangobot.module.configuration.model.config.ConfigMetadata;
 import io.github.mangomaner.mangobot.utils.FileUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
@@ -13,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.Statement;
 
 /**
@@ -53,35 +57,57 @@ public class SQLiteConfig {
             }
             // 存量库幂等迁移：schema.sql 仅在全新安装执行，这里补齐后续新增列
             migrateSchema(dataSource);
+            // 类型化默认配置播种：schema.sql 仅建表与静态数据，动态默认值在此补齐
+            seedDefaultBotConfigs(dataSource);
         };
     }
 
     /** 幂等增量迁移：对存量库补充缺失列（ALTER TABLE 在列已存在时会报错，需先探测） */
     private void migrateSchema(DataSource dataSource) {
         try (Connection connection = dataSource.getConnection()) {
-            ensureColumn(connection, "chat_session", "custom_prompt",
-                    "ALTER TABLE chat_session ADD COLUMN custom_prompt TEXT");
-            migrateOneBotConfigUrl(connection);
         } catch (Exception e) {
             log.warn("增量迁移失败", e);
         }
     }
 
-    /** 存量 onebot_config 迁移：新增 url 列并从 host/port/path 回填，随后移除旧列 */
-    private void migrateOneBotConfigUrl(Connection connection) throws Exception {
-        try (Statement statement = connection.createStatement()) {
-            boolean hasHost = columnExists(connection, "onebot_config", "host");
-            if (hasHost) {
-                if (!columnExists(connection, "onebot_config", "url")) {
-                    statement.execute("ALTER TABLE onebot_config ADD COLUMN url TEXT");
-                    statement.execute("UPDATE onebot_config SET url = 'ws://' || host || ':' || port || COALESCE(NULLIF(path, ''), '') WHERE url IS NULL OR url = ''");
-                    log.info("增量迁移：onebot_config 增加列 url 并从 host/port/path 回填");
-                }
-                statement.execute("ALTER TABLE onebot_config DROP COLUMN host");
-                statement.execute("ALTER TABLE onebot_config DROP COLUMN port");
-                statement.execute("ALTER TABLE onebot_config DROP COLUMN path");
-                log.info("增量迁移：onebot_config 移除旧列 host/port/path");
+    /**
+     * 播种默认 Bot 配置（幂等，全新库与存量库均执行）。
+     *
+     * <p>默认值与 metadata.schema 由类型化模型序列化（单一事实来源），避免在
+     * schema.sql 硬编码 JSON 字面量导致两处漂移；存量库同样由本方法补齐缺失行。
+     */
+    private void seedDefaultBotConfigs(DataSource dataSource) {
+        try (Connection connection = dataSource.getConnection()) {
+            seedAgentCompactionConfig(connection);
+        } catch (Exception e) {
+            log.warn("播种默认 Bot 配置失败", e);
+        }
+    }
+
+    /** 播种 agent.compaction 默认配置（幂等）：用类型化模型序列化默认值与 schema。 */
+    private void seedAgentCompactionConfig(Connection connection) throws Exception {
+        try (Statement statement = connection.createStatement();
+             var rs = statement.executeQuery(
+                     "SELECT COUNT(*) FROM bot_configs WHERE config_key = 'agent.compaction' AND bot_id IS NULL")) {
+            if (rs.next() && rs.getInt(1) > 0) {
+                return;
             }
+        }
+
+        ObjectMapper mapper = new ObjectMapper();
+        ConfigMetadata metadata = new ConfigMetadata();
+        metadata.setSchema(AgentCompactionConfig.schema());
+        String configValue = mapper.writeValueAsString(AgentCompactionConfig.defaults());
+        String metadataJson = mapper.writeValueAsString(metadata);
+
+        try (PreparedStatement ps = connection.prepareStatement(
+                "INSERT INTO bot_configs (bot_id, config_key, config_value, config_type, metadata, description, explain, category, editable) "
+                        + "VALUES (NULL, 'agent.compaction', ?, 'JSON', ?, '上下文压缩阈值', "
+                        + "'按 web/group/private 三端分别配置压缩触发 Token 阈值、消息条数阈值、保留 Token 与压缩前落盘', 'agent', 1)")) {
+            ps.setString(1, configValue);
+            ps.setString(2, metadataJson);
+            ps.executeUpdate();
+            log.info("播种默认 Bot 配置：agent.compaction");
         }
     }
 

@@ -28,6 +28,7 @@ import io.github.mangomaner.mangobot.module.agent.service.AgentJavaToolConfigSer
 import io.github.mangomaner.mangobot.module.agent.service.AgentMcpConfigService;
 import io.github.mangomaner.mangobot.module.agent.service.AgentMcpToolConfigService;
 import io.github.mangomaner.mangobot.module.agent.service.AgentSkillConfigService;
+import io.github.mangomaner.mangobot.module.configuration.service.BotConfigService;
 import io.github.mangomaner.mangobot.system.common.ErrorCode;
 import io.github.mangomaner.mangobot.system.exception.BusinessException;
 import jakarta.annotation.PreDestroy;
@@ -55,7 +56,7 @@ public class AgentRuntimeRegistry {
     private static final String KEY_SEPARATOR = ":";
 
     private final AgentWorkspaceManager workspaceManager;
-    private final AgentRuntimeProperties properties;
+    private final BotConfigService botConfigService;
     private final AgentJavaToolConfigService javaToolConfigService;
     private final AgentMcpConfigService mcpConfigService;
     private final AgentMcpToolConfigService mcpToolConfigService;
@@ -142,11 +143,7 @@ public class AgentRuntimeRegistry {
                 .toolkit(toolkit)
                 .enableMetaTool(true)
                 .stateStore(new JsonFileAgentStateStore(workspaceManager.getStateDir()))
-                .compaction(CompactionConfig.builder()
-                        .triggerTokens(properties.getCompaction().getTriggerTokens())
-                        .keepTokens(properties.getCompaction().getKeepTokens())
-                        .flushBeforeCompact(properties.getCompaction().isFlushBeforeCompact())
-                        .build())
+                .compaction(resolveCompaction(botId, source))
                 // 关闭 harness 内联同步抽取：长期记忆抽取改由 MemoryFlushService 在后台异步触发，
                 // 否则每次回复完成后会阻塞 [DONE]，前端需等待一次 LLM 抽取（可达十余秒）才能再次发送
                 .memory(MemoryConfig.builder()
@@ -173,6 +170,44 @@ public class AgentRuntimeRegistry {
         log.info("HarnessAgent built for bot {} source {}: workspace={}",
                 botId, source.getSourceKey(), workspaceManager.resolveAgentWorkspace(botId, source));
         return agent;
+    }
+
+    /**
+     * 解析 (Bot, 来源) 的压缩阈值：优先取 bot_configs 中 agent.compaction 该来源子对象，
+     * 缺失字段回退到 {@link AgentCompactionConfig#defaults()} 默认值。
+     */
+    private CompactionConfig resolveCompaction(String botId, SessionSource source) {
+        AgentCompactionConfig.SourceCompaction def = AgentCompactionConfig.defaults().sourceFor(source);
+        CompactionConfig.Builder builder = CompactionConfig.builder()
+                .triggerTokens(def.triggerTokens())
+                .triggerMessages(def.triggerMessages())
+                .keepTokens(def.keepTokens())
+                .flushBeforeCompact(def.flushBeforeCompact());
+
+        String raw = botConfigService.getConfigValue(AgentCompactionConfig.CONFIG_KEY, botId);
+        if (raw == null || raw.isBlank()) {
+            return builder.build();
+        }
+        try {
+            AgentCompactionConfig config = objectMapper.readValue(raw, AgentCompactionConfig.class);
+            AgentCompactionConfig.SourceCompaction sc = config.sourceFor(source);
+            if (sc.triggerTokens() != null) {
+                builder.triggerTokens(sc.triggerTokens());
+            }
+            if (sc.triggerMessages() != null) {
+                builder.triggerMessages(sc.triggerMessages());
+            }
+            if (sc.keepTokens() != null) {
+                builder.keepTokens(sc.keepTokens());
+            }
+            if (sc.flushBeforeCompact() != null) {
+                builder.flushBeforeCompact(sc.flushBeforeCompact());
+            }
+        } catch (Exception e) {
+            log.warn("Failed to parse {} for bot {} source {}, fallback to defaults",
+                    AgentCompactionConfig.CONFIG_KEY, botId, source.getSourceKey(), e);
+        }
+        return builder.build();
     }
 
     /**

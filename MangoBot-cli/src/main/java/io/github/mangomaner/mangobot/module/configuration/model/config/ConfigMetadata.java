@@ -48,9 +48,11 @@ public class ConfigMetadata implements Serializable {
     private String pattern;
     
     private String listType;
-    
+
+    private JsonConfigSchema schema;
+
     private Map<String, Object> extra;
-    
+
     public static ConfigMetadata forSelect(List<SelectOption> options) {
         ConfigMetadata metadata = new ConfigMetadata();
         metadata.setOptions(options);
