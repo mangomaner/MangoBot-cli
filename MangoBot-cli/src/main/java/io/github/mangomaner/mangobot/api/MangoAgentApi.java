@@ -1,10 +1,13 @@
 package io.github.mangomaner.mangobot.api;
 
+import io.agentscope.core.message.ContentBlock;
 import io.github.mangomaner.mangobot.module.agent.chat.ChatOrchestrator;
 import io.github.mangomaner.mangobot.module.agent.model.enums.SessionSource;
 import io.github.mangomaner.mangobot.module.agent.model.vo.ChatSessionVO;
 import io.github.mangomaner.mangobot.module.agent.service.ChatSessionService;
 import reactor.core.publisher.Flux;
+
+import java.util.List;
 
 /**
  * Agent API（静态工具类）
@@ -100,6 +103,19 @@ public class MangoAgentApi {
     }
 
     /**
+     * 执行流式对话（多模态内容块：TextBlock 信封 + ImageBlock 真图）。
+     *
+     * @param sessionId  对话会话ID
+     * @param blocks     用户消息内容块（文本 + 图片）
+     * @param senderName 发送者标识（群聊/私聊为发送者 QQ 号）
+     * @return 流式响应（Server-Sent Events）
+     */
+    public static Flux<String> streamChat(Integer sessionId, List<ContentBlock> blocks, String senderName) {
+        checkServices();
+        return chatOrchestrator.streamChat(sessionId, blocks, senderName);
+    }
+
+    /**
      * 中断指定会话正在进行的调用（per-session，不影响其他会话）
      *
      * @param sessionId 会话ID
@@ -118,5 +134,17 @@ public class MangoAgentApi {
     public static boolean isChatRunning(Integer sessionId) {
         checkServices();
         return chatOrchestrator.isRunning(sessionId);
+    }
+
+    /**
+     * 清空指定会话中 bot 的对话记忆（AgentState），下一轮回复从空白上下文开始。
+     *
+     * @param botId  Bot ID
+     * @param source 会话来源
+     * @param chatId 群ID/私聊QQ
+     */
+    public static void clearSessionContext(String botId, SessionSource source, String chatId) {
+        checkServices();
+        chatOrchestrator.clearSessionContext(botId, source, chatId);
     }
 }

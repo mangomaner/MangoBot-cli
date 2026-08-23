@@ -151,9 +151,16 @@ public class AgentRuntimeRegistry {
                         .build())
                 .skillRepository(new FileSystemSkillRepository(workspaceManager.getSkillsDirectory()))
                 .skillFilter(buildSkillFilter(source))
-                // 保留内置 WorkspaceContextMiddleware：注入 MEMORY.md / knowledge / 工作区清单。
-                // AGENTS.md 已退役（AgentWorkspaceManager 迁移时删除，不再播种），不会注入旧人格，
-                // 人格与回复规则仍由 PromptInjectionMiddleware 追加的三层提示词承载
+                // 关闭内置 WorkspaceContextMiddleware：它会把 Claude Code 工程代理样板
+                // （Domain Knowledge / Memory Recall / Workspace Files + 自动抽取的假 MEMORY.md）
+                // 注入到聊天 bot 的系统提示词里，每轮白白吃掉约 5000 字符，属于主要污染源。
+                // AGENTS.md 已退役、人格由 PromptInjectionMiddleware 追加的三层提示词承载，
+                // 关闭后不影响人格与回复规则。
+                .disableWorkspaceContext()
+                // 关闭 LLM 侧内存工具（memory_search/memory_get/memory_save）：聊天 bot 的真实
+                // 对话记忆由 AgentStateStore 承载，长期记忆抽取由 MemoryFlushService 后台处理，
+                // 这些内存工具对 bot 是惰性的死工具，留着只会污染提示词。
+                .disableMemoryTools()
                 .middleware(messageSanitizeMiddleware)
                 .middleware(promptInjectionMiddleware)
                 .middleware(agentContextCapture)

@@ -3,7 +3,10 @@ package io.github.mangomaner.mangobot.module.agent.chat;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.event.ModelCallEndEvent;
 import io.agentscope.core.event.ToolCallStartEvent;
+import io.agentscope.core.message.ContentBlock;
+import io.agentscope.core.message.TextBlock;
 import io.agentscope.core.message.UserMessage;
+import io.agentscope.core.state.AgentState;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.github.mangomaner.mangobot.api.context.ChatContext;
 import io.github.mangomaner.mangobot.api.context.state.ToolExecuteState;
@@ -70,21 +73,32 @@ public class ChatOrchestrator {
     private static final int MAX_REPLY_RETRY = 1;
 
     public Flux<String> streamChat(Integer sessionId, String message) {
-        return streamChat(sessionId, message, null);
+        return streamChat(sessionId, List.of(TextBlock.builder().text(message).build()), null);
     }
 
     /**
-     * 执行流式对话。
+     * 执行流式对话（纯文本，私聊/Web 等无图片场景）。
      *
      * @param sessionId  会话 ID
      * @param message    用户消息原文（不做 XML 包装）
      * @param senderName 发送者标识（群聊/私聊为发送者 QQ 号），作为 UserMessage.name
      */
     public Flux<String> streamChat(Integer sessionId, String message, String senderName) {
+        return streamChat(sessionId, List.of(TextBlock.builder().text(message).build()), senderName);
+    }
+
+    /**
+     * 执行流式对话（多模态内容块：TextBlock 信封 + ImageBlock 真图）。
+     *
+     * @param sessionId  会话 ID
+     * @param blocks     用户消息内容块（文本 + 图片）
+     * @param senderName 发送者标识，作为 UserMessage.name
+     */
+    public Flux<String> streamChat(Integer sessionId, List<ContentBlock> blocks, String senderName) {
         if (sessionId == null) {
             return Flux.just("<Error>会话ID不能为空</Error>\n[DONE]");
         }
-        if (!StringUtils.hasText(message)) {
+        if (blocks == null || blocks.isEmpty()) {
             return Flux.just("<Error>消息内容不能为空</Error>\n");
         }
 
@@ -104,7 +118,7 @@ public class ChatOrchestrator {
             }
         }
 
-        persistUserMessage(sessionId, message);
+        persistUserMessage(sessionId, extractText(blocks));
 
         RuntimeContext context = RuntimeContext.builder()
                 .userId(userId)
@@ -120,7 +134,7 @@ public class ChatOrchestrator {
 
         int myGeneration = generation.incrementAndGet();
 
-        return runTurns(session, agent, context, message, senderName, 0, generation, myGeneration)
+        return runTurns(session, agent, context, blocks, senderName, 0, generation, myGeneration)
                 .subscribeOn(Schedulers.boundedElastic())
                 .doFinally(signalType -> {
                     // 只有当前这一代还在运行才清理，避免旧调用的收尾清掉新调用的状态
@@ -131,8 +145,19 @@ public class ChatOrchestrator {
                 });
     }
 
+    /** 提取内容块中的纯文本（拼接所有 TextBlock），用于消息持久化展示 */
+    private static String extractText(List<ContentBlock> blocks) {
+        StringBuilder text = new StringBuilder();
+        for (ContentBlock block : blocks) {
+            if (block instanceof TextBlock tb) {
+                text.append(tb.getText());
+            }
+        }
+        return text.toString();
+    }
+
     private Flux<String> runTurns(ChatSessionVO session, HarnessAgent agent, RuntimeContext context,
-                                  String message, String senderName, int attempt,
+                                  List<ContentBlock> userBlocks, String senderName, int attempt,
                                   AtomicInteger generation, int myGeneration) {
         AtomicBoolean sendToolInvoked = new AtomicBoolean(false);
         AtomicBoolean silenceToolInvoked = new AtomicBoolean(false);
@@ -141,10 +166,9 @@ public class ChatOrchestrator {
         AtomicReference<TokenUsageVO> totalUsage = new AtomicReference<>();
         List<TokenUsageVO> callUsages = new ArrayList<>();
 
+        String userName = senderName != null && !senderName.isBlank() ? senderName : ROLE_USER;
         Flux<String> turn = agent.streamEvents(
-                        new UserMessage(
-                                senderName != null && !senderName.isBlank() ? senderName : ROLE_USER,
-                                message),
+                        new UserMessage(userName, userBlocks.toArray(new ContentBlock[0])),
                         context)
                 .flatMap(event -> {
                     if (event instanceof ToolCallStartEvent start) {
@@ -220,7 +244,8 @@ public class ChatOrchestrator {
                 log.info("Private session {} produced no reply, retrying once", session.getId());
                 String reminder = "（系统提醒）你还没有生成任何回复内容。私聊中必须回复，请立即调用发送工具发送一条消息。";
                 return post.concatWith(Flux.just("\n<Reminder>私聊必须回复，正在重试...</Reminder>\n"))
-                        .concatWith(runTurns(session, agent, context, reminder, null, attempt + 1,
+                        .concatWith(runTurns(session, agent, context,
+                                List.of(TextBlock.builder().text(reminder).build()), null, attempt + 1,
                                 generation, myGeneration));
             }
             return post;
@@ -273,6 +298,43 @@ public class ChatOrchestrator {
         agent.getDelegate().interrupt(
                 SessionKeys.userId(session),
                 SessionKeys.sessionId(session, sessionId));
+    }
+
+    /**
+     * 清空指定会话中 bot 的对话记忆（AgentState：内存缓存 + 磁盘状态文件），
+     * 此后 bot 下一条回复从空白上下文开始。不删除真实消息记录与 chat_messages 投影。
+     */
+    public void clearSessionContext(String botId, SessionSource source, String chatId) {
+        ChatSessionVO session = chatSessionService.getSessionByBotIdAndChatId(botId, chatId, source);
+        HarnessAgent agent = agentRuntimeRegistry.getOrCreate(botId, source);
+        String userId = SessionKeys.userId(session);
+        String sessionKey = SessionKeys.sessionId(session, session.getId());
+        try {
+            // 打断 in-flight 调用，避免旧调用回写已清空的状态
+            agent.getDelegate().interrupt(userId, sessionKey);
+        } catch (Exception e) {
+            log.warn("Failed to interrupt in-flight call while clearing context: userId={}, sessionKey={}",
+                    userId, sessionKey, e);
+        }
+        RuntimeContext context = RuntimeContext.builder()
+                .userId(userId)
+                .sessionId(sessionKey)
+                .put(ChatContext.class, ChatContext.builder()
+                        .sessionId(session.getId())
+                        .botId(session.getBotId())
+                        .chatId(session.getChatId())
+                        .source(session.getSource())
+                        .build())
+                .build();
+        AgentState state = RuntimeContext.resolveAgentState(context, agent);
+        if (state != null) {
+            state.contextMutable().clear();
+            state.setSummary(null);
+            state.setCurIter(0);
+        }
+        agent.getDelegate().getStateStore().delete(userId, sessionKey);
+        log.info("Cleared conversation context for bot {} source {} chat {} (userId={}, sessionKey={})",
+                botId, source.getSourceKey(), chatId, userId, sessionKey);
     }
 
     private void persistUserMessage(Integer sessionId, String content) {

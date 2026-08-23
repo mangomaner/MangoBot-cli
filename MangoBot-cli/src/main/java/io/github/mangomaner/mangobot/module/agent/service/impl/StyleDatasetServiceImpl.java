@@ -3,6 +3,13 @@ package io.github.mangomaner.mangobot.module.agent.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.mangomaner.mangobot.adapter.onebot.model.segment.AtSegment;
+import io.github.mangomaner.mangobot.adapter.onebot.model.segment.ImageSegment;
+import io.github.mangomaner.mangobot.adapter.onebot.model.segment.OneBotMessageSegment;
+import io.github.mangomaner.mangobot.adapter.onebot.model.segment.ReplySegment;
+import io.github.mangomaner.mangobot.adapter.onebot.model.segment.TextSegment;
+import io.github.mangomaner.mangobot.adapter.onebot.utils.MessageLexer;
+import io.github.mangomaner.mangobot.adapter.onebot.utils.MessageLexer.RenderMode;
 import io.github.mangomaner.mangobot.module.agent.model.dataset.StyleMessage;
 import io.github.mangomaner.mangobot.module.agent.model.dataset.StyleRole;
 import io.github.mangomaner.mangobot.module.agent.model.domain.StyleDataset;
@@ -24,8 +31,10 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -111,20 +120,44 @@ public class StyleDatasetServiceImpl implements StyleDatasetService {
         // 按发送者归并角色（保持首次出现顺序），统一视为普通角色
         Set<String> roleNames = new LinkedHashSet<>();
         for (StyleDatasetImportRequest.ImportMessage msg : messages) {
-            if (StringUtils.hasText(msg.getSenderName())) {
-                roleNames.add(msg.getSenderName());
+            if (StringUtils.hasText(msg.getRoleName())) {
+                roleNames.add(msg.getRoleName());
             }
         }
         if (roleNames.isEmpty()) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "所选消息缺少发送者信息，无法生成角色");
         }
 
-        List<StyleRole> roles = roleNames.stream().map(StyleRole::new).toList();
-        List<StyleMessage> styleMessages = messages.stream()
-                .filter(msg -> StringUtils.hasText(msg.getText()) && roleNames.contains(msg.getSenderName()))
-                .map(msg -> new StyleMessage(msg.getSenderName(), msg.getText()))
-                .toList();
+        // 仅收 text/at/image/reply：渲染成模型字面（图片带 [image=file_id] 凭证），reply 解析为 replyToIndex
+        List<StyleMessage> styleMessages = new ArrayList<>();
+        List<List<OneBotMessageSegment>> builtSegments = new ArrayList<>();
+        Map<String, Integer> indexById = new HashMap<>();
+        for (StyleDatasetImportRequest.ImportMessage msg : messages) {
+            if (!roleNames.contains(msg.getRoleName())) {
+                continue;
+            }
+            List<OneBotMessageSegment> supported = keepSupported(msg.getSegments());
+            String content = MessageLexer.render(supported, RenderMode.DATASET);
+            if (!StringUtils.hasText(content)) {
+                continue;
+            }
+            indexById.put(msg.getMessageId(), styleMessages.size());
+            builtSegments.add(supported);
+            styleMessages.add(new StyleMessage(msg.getRoleName(), content, null));
+        }
+        // 回填回复下标：仅当回复目标也在本次导入的数据集内（可指任意一条）
+        for (int i = 0; i < styleMessages.size(); i++) {
+            Integer target = indexById.get(findReplyId(builtSegments.get(i)));
+            if (target != null) {
+                StyleMessage m = styleMessages.get(i);
+                styleMessages.set(i, new StyleMessage(m.roleName(), m.content(), target));
+            }
+        }
+        if (styleMessages.isEmpty()) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "所选消息没有可导入的内容");
+        }
 
+        List<StyleRole> roles = roleNames.stream().map(StyleRole::new).toList();
         StyleDataset dataset = new StyleDataset();
         dataset.setName(request.getName());
         dataset.setDescription(request.getDescription());
@@ -136,6 +169,27 @@ public class StyleDatasetServiceImpl implements StyleDatasetService {
         fillTimestamps(dataset, true);
         styleDatasetMapper.insert(dataset);
         return toDetailVO(dataset);
+    }
+
+    /** 仅保留 text/at/image/reply，丢弃音频/视频/定位/分享等不可导出的类型。 */
+    private List<OneBotMessageSegment> keepSupported(List<OneBotMessageSegment> segments) {
+        if (segments == null) {
+            return List.of();
+        }
+        return segments.stream()
+                .filter(seg -> seg instanceof TextSegment || seg instanceof AtSegment
+                        || seg instanceof ImageSegment || seg instanceof ReplySegment)
+                .toList();
+    }
+
+    /** 提取本条消息的回复目标 message_id（无回复返回 null）。 */
+    private String findReplyId(List<OneBotMessageSegment> segments) {
+        for (OneBotMessageSegment seg : segments) {
+            if (seg instanceof ReplySegment reply && reply.getData() != null) {
+                return reply.getData().getId();
+            }
+        }
+        return null;
     }
 
     private StyleDataset requireDataset(Long id) {

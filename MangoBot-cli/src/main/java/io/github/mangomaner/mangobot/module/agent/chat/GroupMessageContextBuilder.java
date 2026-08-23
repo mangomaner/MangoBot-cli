@@ -1,5 +1,6 @@
 package io.github.mangomaner.mangobot.module.agent.chat;
 
+import io.agentscope.core.message.ContentBlock;
 import io.github.mangomaner.mangobot.adapter.onebot.handler.outbound.send.OneBotApiService;
 import io.github.mangomaner.mangobot.adapter.onebot.model.event.message.OneBotMessageEvent;
 import io.github.mangomaner.mangobot.adapter.onebot.model.segment.AtSegment;
@@ -10,26 +11,25 @@ import io.github.mangomaner.mangobot.events.onebot.message.OneBotGroupMessageEve
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
-import java.util.Map;
 
 /**
- * 群聊消息预处理：把一条原始群消息组装成带上下文的信封，供 Agent 理解。
+ * 群聊消息预处理：把一条原始群消息组装成带 message_id、图片、@/回复结构的信封行。
  *
- * <p>信封格式：
+ * <p>信封行格式（属性在前、内容在后）：
  * <pre>
- * [14:03] 张三(10001·群员) → 今晚吃什么
- * 提到你:true 回复你:false 距上条:5分钟
+ * [14:03] 张三(10001) message_id=7890 提到你:true
+ *     今晚吃什么[图片]
  * </pre>
- * <ul>
- *   <li>提到你：有人 @你（不含 @全体）或在正文里写了你的 QQ 号</li>
- *   <li>回复你：有人回复了你发过的消息</li>
- *   <li>距上条：距离上一条群消息的时间，仅供 Agent 参考，不作为话题切换依据</li>
- * </ul>
+ * 第一行是属性：时间、发送者昵称(QQ)、message_id，仅在为 true 时追加 {@code 提到你}/{@code 回复你}，
+ * 若有回复再追加以 {@code 回复了:<id>}；第二行缩进是正文。正文里的 {@code [@qq]} / {@code [图片]}
+ * / {@code [表情]} 是模型字面标记，真实图片像素由 {@link MessageEnvelope} 以 ImageBlock 单独送达，
+ * 绝不把图片描述化成文字进主模型；{@code [表情]}（QQ 表情/贴纸）只有标记、无像素。
  */
 @Slf4j
 @Component
@@ -38,61 +38,60 @@ public class GroupMessageContextBuilder {
 
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm");
 
-    private final GroupConversationState conversationState;
     private final OneBotApiService oneBotApiService;
+    private final MessageEnvelope messageEnvelope;
 
-    /**
-     * 构建群消息信封。
-     *
-     * @param event 群消息事件
-     * @param body  消息正文（parse_message）
-     */
-    public String build(OneBotGroupMessageEvent event, String body) {
-        String groupKey = event.getSelfId() + ":" + event.getGroupId();
-        long now = event.getTime() * 1000L;
-        Long last = conversationState.recordMessage(groupKey, now);
+    /** 单条群消息的信封内容（元数据行 + 缩进正文）+ 图片块。 */
+    public record Envelope(String line, List<ContentBlock> images) {
+    }
 
-        StringBuilder envelope = new StringBuilder();
-        envelope.append('[')
-                .append(TIME_FORMAT.format(Instant.ofEpochMilli(now).atZone(ZoneId.systemDefault())))
-                .append("] ")
+    public Envelope build(OneBotGroupMessageEvent event) {
+        String body = messageEnvelope.renderBody(event.getMessage());
+        String replyTarget = messageEnvelope.replyTargetId(event.getMessage());
+        boolean mention = detectMention(event, body);
+        boolean reply = detectReplyToBot(event);
+
+        StringBuilder line = new StringBuilder();
+        line.append('[').append(TIME_FORMAT.format(Instant.ofEpochMilli(event.getTime() * 1000L)
+                .atZone(ZoneId.systemDefault()))).append("] ")
                 .append(formatSender(event))
-                .append(" → ")
-                .append(body == null ? "" : body)
-                .append('\n')
-                .append("提到你:").append(detectMention(event, body))
-                .append(" 回复你:").append(detectReplyToBot(event))
-                .append(" 距上条:").append(formatGap(last, now));
-        return envelope.toString();
+                .append(" message_id=").append(event.getMessageId());
+        if (replyTarget != null) {
+            line.append(" 回复了:").append(replyTarget);
+        }
+        if (mention) {
+            line.append(" 提到你:true");
+        }
+        if (reply) {
+            line.append(" 回复你:true");
+        }
+        line.append("\n    ").append(body);
+
+        return new Envelope(line.toString(), messageEnvelope.imageBlocks(event.getMessage()));
     }
 
     private String formatSender(OneBotGroupMessageEvent event) {
         OneBotMessageEvent.Sender sender = event.getSender();
         String name;
-        String roleSuffix = "";
         if (sender != null) {
             name = sender.getCard();
-            if (name == null || name.isEmpty()) {
+            if (!StringUtils.hasText(name)) {
                 name = sender.getNickname();
             }
-            if (name == null || name.isEmpty()) {
+            if (!StringUtils.hasText(name)) {
                 name = String.valueOf(event.getUserId());
-            }
-            if (sender.getRole() != null && !sender.getRole().isEmpty()) {
-                roleSuffix = "·" + sender.getRole();
             }
         } else {
             name = String.valueOf(event.getUserId());
         }
-        return name + "(" + event.getUserId() + roleSuffix + ")";
+        return name + "(" + event.getUserId() + ")";
     }
 
     /**
      * @我（不含 @全体）或正文中出现 bot 的 QQ 号（作为独立数字），即视为"提到你"。
      */
     private boolean detectMention(OneBotGroupMessageEvent event, String body) {
-        long selfId = event.getSelfId();
-        String selfIdStr = String.valueOf(selfId);
+        String selfIdStr = String.valueOf(event.getSelfId());
         List<OneBotMessageSegment> segments = event.getMessage();
         if (segments != null) {
             for (OneBotMessageSegment segment : segments) {
@@ -120,7 +119,7 @@ public class GroupMessageContextBuilder {
                 try {
                     MessageInfo info = oneBotApiService.getMsg(
                             event.getSelfId(), Integer.parseInt(reply.getData().getId()));
-                    if (info != null && info.getSender() instanceof Map<?, ?> map) {
+                    if (info != null && info.getSender() instanceof java.util.Map<?, ?> map) {
                         Object userId = map.get("user_id");
                         if (userId != null && String.valueOf(userId).equals(String.valueOf(event.getSelfId()))) {
                             return true;
@@ -133,23 +132,5 @@ public class GroupMessageContextBuilder {
             }
         }
         return false;
-    }
-
-    private String formatGap(Long last, long now) {
-        if (last == null) {
-            return "新会话";
-        }
-        long gapMinutes = (now - last) / 60000;
-        if (gapMinutes < 1) {
-            return "刚刚";
-        }
-        if (gapMinutes < 60) {
-            return gapMinutes + "分钟";
-        }
-        long hours = gapMinutes / 60;
-        if (hours < 24) {
-            return hours + "小时";
-        }
-        return (hours / 24) + "天";
     }
 }

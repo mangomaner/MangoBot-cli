@@ -33,11 +33,11 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class PromptNormServiceImpl implements PromptNormService {
 
-    /** L1 高危校验关键词：各来源至少需保留一个关键协议词，防止清空导致 bot 无法回复 */
-    private static final Map<String, String> L1_REQUIRED_KEYWORD = Map.of(
-            SessionSource.GROUP.getSourceKey(), "sendTextMessage",
-            SessionSource.PRIVATE.getSourceKey(), "sendTextMessage",
-            SessionSource.WEB.getSourceKey(), "输出");
+    /** L1 高危校验关键词：各来源至少需保留其一的协议词，防止清空导致 bot 无法回复 */
+    private static final Map<String, List<String>> L1_REQUIRED_KEYWORDS = Map.of(
+            SessionSource.GROUP.getSourceKey(), List.of("sendGroupMessage", "sendGroupReply"),
+            SessionSource.PRIVATE.getSourceKey(), List.of("sendPrivateMessage", "sendPrivateReply"),
+            SessionSource.WEB.getSourceKey(), List.of("输出"));
 
     private final PromptNormMapper promptNormMapper;
     private final PromptTemplateLoader templateLoader;
@@ -174,10 +174,10 @@ public class PromptNormServiceImpl implements PromptNormService {
         if (layer != PromptLayer.FRAMEWORK) {
             return;
         }
-        String keyword = L1_REQUIRED_KEYWORD.get(source.getSourceKey());
-        if (keyword != null && !content.contains(keyword)) {
+        List<String> keywords = L1_REQUIRED_KEYWORDS.get(source.getSourceKey());
+        if (keywords != null && keywords.stream().noneMatch(content::contains)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR,
-                    "框架规范必须包含协议关键词 \"" + keyword + "\"，请勿删除工具调用协议");
+                    "框架规范必须包含协议关键词 " + String.join(" 或 ", keywords) + "，请勿删除工具调用协议");
         }
     }
 

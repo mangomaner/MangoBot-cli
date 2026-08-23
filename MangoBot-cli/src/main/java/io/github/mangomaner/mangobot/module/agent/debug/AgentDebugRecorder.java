@@ -12,6 +12,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -150,7 +151,7 @@ public class AgentDebugRecorder {
         }
     }
 
-    /** 已记录的模型调用次数（jsonl 行数） */
+    /** 已记录的模型调用次数（可解析记录条数） */
     public int recordCount(Integer sessionId) {
         if (sessionId == null) {
             return 0;
@@ -159,15 +160,87 @@ public class AgentDebugRecorder {
         if (!Files.exists(file)) {
             return 0;
         }
-        try (var lines = Files.lines(file, StandardCharsets.UTF_8)) {
-            return (int) lines.filter(line -> !line.isBlank()).count();
+        int count = 0;
+        for (String line : readLinesLenient(file)) {
+            if (parseable(line)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /**
+     * 删除第 index 条可解析的记录（0 基下标，与 listRecords 返回顺序一致）。
+     * 通过重写文件跳过该行实现；解析失败的残行保留原位，不影响其余记录下标。
+     */
+    public void removeRecord(Integer sessionId, int index) {
+        if (sessionId == null || index < 0) {
+            return;
+        }
+        Path file = recordFile(sessionId);
+        if (!Files.exists(file)) {
+            return;
+        }
+        try {
+            List<String> lines = readLinesLenient(file);
+            int validIdx = 0;
+            boolean removed = false;
+            List<String> out = new ArrayList<>(lines.size());
+            for (String line : lines) {
+                boolean parseable = parseable(line);
+                if (parseable && !removed && validIdx == index) {
+                    removed = true;
+                    continue;
+                }
+                if (parseable) {
+                    validIdx++;
+                }
+                out.add(line);
+            }
+            if (removed) {
+                Files.write(file, out, StandardCharsets.UTF_8);
+            }
         } catch (Exception e) {
-            log.warn("Failed to count debug records for session: {}", sessionId, e);
-            return 0;
+            log.warn("Failed to remove debug record #{} for session: {}", index, sessionId, e);
         }
     }
 
-    /** 该会话已记录的完整调用列表（按时间先后） */
+    /** 清空该会话的所有已记录内容（删除整个 jsonl 文件），记录开关保持不变。 */
+    public void clearRecords(Integer sessionId) {
+        if (sessionId == null) {
+            return;
+        }
+        try {
+            Files.deleteIfExists(recordFile(sessionId));
+        } catch (Exception e) {
+            log.warn("Failed to clear debug records for session: {}", sessionId, e);
+        }
+    }
+
+    private boolean parseable(String line) {
+        try {
+            objectMapper.readValue(line, Map.class);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * 宽松读取 jsonl 全部分行：按字节解码为 UTF-8（非法字节替换为替换符，不抛异常），再按换行拆分。
+     * 严格解码读历史/损坏文件会抛 MalformedInputException，导致删除/清空/计数全部失败。
+     */
+    private List<String> readLinesLenient(Path file) {
+        try {
+            byte[] bytes = Files.readAllBytes(file);
+            return Arrays.asList(new String(bytes, StandardCharsets.UTF_8).split("\n", -1));
+        } catch (Exception e) {
+            log.warn("Failed to read debug record file: {}", file, e);
+            return List.of();
+        }
+    }
+
+    /** 该会话已记录的完整调用列表（按时间先后，跳过解析失败的行） */
     public List<Map<String, Object>> listRecords(Integer sessionId) {
         List<Map<String, Object>> result = new ArrayList<>();
         if (sessionId == null) {
@@ -177,16 +250,15 @@ public class AgentDebugRecorder {
         if (!Files.exists(file)) {
             return result;
         }
-        try (var lines = Files.lines(file, StandardCharsets.UTF_8)) {
-            lines.filter(line -> !line.isBlank()).forEach(line -> {
-                try {
-                    result.add(objectMapper.readValue(line, Map.class));
-                } catch (Exception e) {
-                    log.warn("Failed to parse debug record line: {}", e.getMessage());
-                }
-            });
-        } catch (Exception e) {
-            log.warn("Failed to list debug records for session: {}", sessionId, e);
+        for (String line : readLinesLenient(file)) {
+            if (line.isBlank()) {
+                continue;
+            }
+            try {
+                result.add(objectMapper.readValue(line, Map.class));
+            } catch (Exception e) {
+                log.warn("Failed to parse debug record line: {}", e.getMessage());
+            }
         }
         return result;
     }

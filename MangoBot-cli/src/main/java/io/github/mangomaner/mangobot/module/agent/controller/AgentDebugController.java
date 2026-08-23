@@ -14,6 +14,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -85,6 +86,26 @@ public class AgentDebugController {
     @Operation(summary = "列出会话已记录的所有模型调用", description = "按时间先后返回每次调用的 time/input/usage")
     public BaseResponse<List<Map<String, Object>>> listRecords(@RequestParam Integer sessionId) {
         return new BaseResponse<>(0, agentDebugRecorder.listRecords(sessionId), "");
+    }
+
+    @DeleteMapping("/record/single")
+    @Operation(summary = "删除某条调试记录", description = "按持久化记录下标（record/list 的 0 基下标）删除单条，无需确认")
+    public BaseResponse<Void> deleteRecord(@RequestParam Integer sessionId, @RequestParam Integer index) {
+        if (sessionId == null || index == null || index < 0) {
+            return new BaseResponse<>(ErrorCode.PARAMS_ERROR);
+        }
+        agentDebugRecorder.removeRecord(sessionId, index);
+        return new BaseResponse<>(0, null, "");
+    }
+
+    @DeleteMapping("/record/all")
+    @Operation(summary = "清空某会话所有调试记录", description = "删除该会话全部已记录内容，记录开关保持不变")
+    public BaseResponse<Void> clearRecords(@RequestParam Integer sessionId) {
+        if (sessionId == null) {
+            return new BaseResponse<>(ErrorCode.PARAMS_ERROR);
+        }
+        agentDebugRecorder.clearRecords(sessionId);
+        return new BaseResponse<>(0, null, "");
     }
 
     @GetMapping("/session")
