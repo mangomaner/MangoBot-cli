@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -51,6 +52,16 @@ public class ChatMessageWebServiceImpl extends ServiceImpl<ChatMessageWebMapper,
      * 角色常量：系统
      */
     private static final String ROLE_SYSTEM = "system";
+
+    /**
+     * 分页默认条数
+     */
+    private static final int DEFAULT_PAGE_SIZE = 30;
+
+    /**
+     * 分页条数上限（防止一次性拉取过多）
+     */
+    private static final int MAX_PAGE_SIZE = 100;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -158,6 +169,29 @@ public class ChatMessageWebServiceImpl extends ServiceImpl<ChatMessageWebMapper,
 
         List<ChatMessageWeb> messages = this.list(wrapper);
 
+        return messages.stream()
+                .map(this::convertToVO)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<ChatMessageWebVO> listMessagesBySessionId(Integer sessionId, Integer beforeId, Integer limit) {
+        if (sessionId == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "会话ID不能为空");
+        }
+
+        int size = limit == null ? DEFAULT_PAGE_SIZE : Math.max(1, Math.min(limit, MAX_PAGE_SIZE));
+        LambdaQueryWrapper<ChatMessageWeb> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(ChatMessageWeb::getSessionId, sessionId);
+        if (beforeId != null) {
+            wrapper.lt(ChatMessageWeb::getId, beforeId);
+        }
+        // id 自增且唯一，作为翻页游标最稳定；DESC 取最近一页后反转回正序
+        wrapper.orderByDesc(ChatMessageWeb::getId)
+                .last("LIMIT " + size);
+
+        List<ChatMessageWeb> messages = this.list(wrapper);
+        Collections.reverse(messages);
         return messages.stream()
                 .map(this::convertToVO)
                 .collect(Collectors.toList());

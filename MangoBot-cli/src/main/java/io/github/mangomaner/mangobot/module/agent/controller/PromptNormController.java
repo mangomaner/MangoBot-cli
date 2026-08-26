@@ -1,6 +1,7 @@
 package io.github.mangomaner.mangobot.module.agent.controller;
 
 import io.github.mangomaner.mangobot.module.agent.model.dto.PromptNormRequest;
+import io.github.mangomaner.mangobot.module.agent.model.enums.BotType;
 import io.github.mangomaner.mangobot.module.agent.model.enums.PromptLayer;
 import io.github.mangomaner.mangobot.module.agent.model.enums.PromptScope;
 import io.github.mangomaner.mangobot.module.agent.model.enums.SessionSource;
@@ -38,10 +39,24 @@ public class PromptNormController {
             @Parameter(description = "作用域：GLOBAL / BOT / SESSION", required = true) @RequestParam String scope,
             @Parameter(description = "Bot ID（非 GLOBAL 时必填）") @RequestParam(required = false) String botId,
             @Parameter(description = "来源：group / private / web", required = true) @RequestParam String source,
-            @Parameter(description = "群聊/私聊 ID（仅 SESSION 时必填）") @RequestParam(required = false) String chatId) {
-        log.info("获取提示词编辑页，scope: {}, source: {}, botId: {}, chatId: {}", scope, source, botId, chatId);
+            @Parameter(description = "群聊/私聊 ID（仅 SESSION 时必填）") @RequestParam(required = false) String chatId,
+            @Parameter(description = "预览用 Bot 类型（可选，仅影响编辑页模板地板，不写库）") @RequestParam(required = false) String type) {
+        log.info("获取提示词编辑页，scope: {}, source: {}, botId: {}, chatId: {}, type: {}", scope, source, botId, chatId, type);
         return ResultUtils.success(promptNormService.getEditPage(
-                PromptScope.fromCode(scope), botId, SessionSource.fromKey(source), chatId));
+                PromptScope.fromCode(scope), botId, SessionSource.fromKey(source), chatId, parseBotType(type)));
+    }
+
+    /** 解析编辑页 `type` 预览参数；空/非法一律返回 null（即用 bot 实际类型） */
+    private BotType parseBotType(String type) {
+        if (type == null || !org.springframework.util.StringUtils.hasText(type)) {
+            return null;
+        }
+        try {
+            return BotType.fromCode(type);
+        } catch (IllegalArgumentException e) {
+            log.warn("编辑页预览 type 参数非法: {}", type);
+            return null;
+        }
     }
 
     @PostMapping("/save")

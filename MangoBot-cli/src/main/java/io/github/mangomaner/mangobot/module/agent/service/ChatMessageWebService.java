@@ -49,6 +49,19 @@ public interface ChatMessageWebService extends IService<ChatMessageWeb> {
     List<ChatMessageWebVO> listMessagesBySessionId(Integer sessionId);
 
     /**
+     * 分页获取会话消息（按 id 正序）。
+     * <p>
+     * {@code beforeId} 为空时返回该会话最近 {@code limit} 条；
+     * {@code beforeId} 非空时返回 id 严格小于 {@code beforeId} 的最近 {@code limit} 条（向上翻页）。
+     *
+     * @param sessionId 会话ID
+     * @param beforeId  翻页游标：取更早消息时传当前最旧消息 id，可为 null
+     * @param limit     每页条数，越界时钳制到 [1, MAX_PAGE_SIZE]
+     * @return 消息视图对象列表（正序）
+     */
+    List<ChatMessageWebVO> listMessagesBySessionId(Integer sessionId, Integer beforeId, Integer limit);
+
+    /**
      * 获取会话下指定角色的消息列表
      *
      * @param sessionId 会话ID

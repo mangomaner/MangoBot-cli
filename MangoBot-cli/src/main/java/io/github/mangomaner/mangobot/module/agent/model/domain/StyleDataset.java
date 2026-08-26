@@ -30,6 +30,9 @@ public class StyleDataset implements Serializable {
     /** 创建类型：created / imported */
     private String createType;
 
+    /** 数据集类型：chatlog（模仿人类的对话剧本）/ character（角色台词） */
+    private String datasetType;
+
     /** 导入时记录来源会话 id（人工创建为空） */
     private Long sourceSessionId;
 

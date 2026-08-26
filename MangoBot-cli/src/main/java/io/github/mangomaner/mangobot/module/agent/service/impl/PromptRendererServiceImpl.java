@@ -1,11 +1,13 @@
 package io.github.mangomaner.mangobot.module.agent.service.impl;
 
 import io.github.mangomaner.mangobot.module.agent.model.dataset.StyleMessage;
+import io.github.mangomaner.mangobot.module.agent.model.enums.BotType;
 import io.github.mangomaner.mangobot.module.agent.model.enums.PromptLayer;
 import io.github.mangomaner.mangobot.module.agent.model.enums.SessionSource;
 import io.github.mangomaner.mangobot.module.agent.model.vo.StyleDatasetDetailVO;
 import io.github.mangomaner.mangobot.module.agent.model.vo.StyleDatasetRefVO;
 import io.github.mangomaner.mangobot.module.agent.model.vo.StyleInjectionVO;
+import io.github.mangomaner.mangobot.module.agent.service.BotTypeService;
 import io.github.mangomaner.mangobot.module.agent.service.PromptNormService;
 import io.github.mangomaner.mangobot.module.agent.service.PromptRendererService;
 import io.github.mangomaner.mangobot.module.agent.service.StyleDatasetService;
@@ -57,17 +59,19 @@ public class PromptRendererServiceImpl implements PromptRendererService {
     private final PromptNormService promptNormService;
     private final StyleInjectionService styleInjectionService;
     private final StyleDatasetService styleDatasetService;
+    private final BotTypeService botTypeService;
 
     @Override
     public String render(String botId, SessionSource source, String chatId) {
         if (source == null) {
             return null;
         }
+        BotType botType = source == SessionSource.WEB ? BotType.HUMAN : botTypeService.getBotType(botId);
         StringBuilder sb = new StringBuilder();
         appendLayer(sb, "一、框架规范", promptNormService.resolveContent(botId, source, chatId, PromptLayer.FRAMEWORK));
         appendLayer(sb, "二、人格规范", promptNormService.resolveContent(botId, source, chatId, PromptLayer.PERSONA));
         appendLayer(sb, "三、行为规范", promptNormService.resolveContent(botId, source, chatId, PromptLayer.BEHAVIOR));
-        appendStyleScript(sb, botId, source, chatId);
+        appendStyleScript(sb, botId, source, chatId, botType);
         if (sb.length() == 0) {
             return null;
         }
@@ -81,9 +85,9 @@ public class PromptRendererServiceImpl implements PromptRendererService {
         sb.append("\n### ").append(title).append("\n").append(content.trim()).append("\n");
     }
 
-    /** 仅群聊/私聊注入风格示范，可叠加多个数据集 */
-    private void appendStyleScript(StringBuilder sb, String botId, SessionSource source, String chatId) {
-        if (source == SessionSource.WEB) {
+    /** 群聊/私聊的「模仿人类」「角色扮演」bot 注入风格示范，可叠加多个数据集；指令遵循不注入 */
+    private void appendStyleScript(StringBuilder sb, String botId, SessionSource source, String chatId, BotType botType) {
+        if (source == SessionSource.WEB || botType == BotType.INSTRUCTION) {
             return;
         }
         StyleInjectionVO injection = styleInjectionService.getEffective(botId, source.getSourceKey(), chatId);
@@ -91,8 +95,15 @@ public class PromptRendererServiceImpl implements PromptRendererService {
             return;
         }
 
-        sb.append("\n### 四、风格示范（模仿以下对话的风格与口吻来回复）\n");
-        sb.append("\n重点注意：模仿「聊天最频繁的那个人」的回复节奏——一次发几条、还是文字+表情包混排。示范里的 [图片] 多是表情包。别总是只发一条纯文字。\n");
+        boolean roleplay = botType == BotType.ROLEPLAY;
+        if (roleplay) {
+            sb.append("\n### 四、角色风格（用以下语料的语气与表达方式来回复）\n");
+            sb.append("贴合以下角色的口吻、用词与表达习惯来回复；不跳戏、不用自己的口吻解释。\n");
+        } else {
+            sb.append("\n### 四、风格示范（模仿以下对话的风格与口吻来回复）\n");
+            sb.append("\n重点注意：模仿「聊天最频繁的那个人」的回复节奏——一次发几条、还是文字+表情包混排。示范里的 [图片] 多是表情包。别总是只发一条纯文字。\n");
+        }
+
         int budget = MAX_STYLE_MESSAGES;
         boolean hadReply = false;
         for (StyleDatasetRefVO ref : injection.getDatasets()) {
@@ -107,6 +118,17 @@ public class PromptRendererServiceImpl implements PromptRendererService {
             int take = Math.min(messages.size(), budget);
             List<StyleMessage> slice = messages.subList(messages.size() - take, messages.size());
             budget -= take;
+
+            // 角色风格：单一角色，逐条渲染为风格示例，供模型学习语气/用词；不标记连发节奏、不加回复工具提示
+            if ("character".equals(dataset.getDatasetType())) {
+                sb.append("数据集「").append(dataset.getName()).append("」\n")
+                        .append("风格示例：\n");
+                for (StyleMessage message : slice) {
+                    sb.append(IMAGE_TOKEN.matcher(message.content() == null ? "" : message.content()).replaceAll("[图片]"))
+                            .append("\n");
+                }
+                continue;
+            }
 
             sb.append("数据集「").append(dataset.getName()).append("」\n")
                     .append("角色：").append(dataset.getRoles().stream()
@@ -128,7 +150,7 @@ public class PromptRendererServiceImpl implements PromptRendererService {
             }
             hadReply |= appendTurn(sb, turn);
         }
-        if (hadReply) {
+        if (hadReply && !roleplay) {
             String replyTool = source == SessionSource.GROUP ? "sendGroupReply" : "sendPrivateReply";
             sb.append("（默认用普通消息工具延续对话即可；仅当要明确回复的是较久之前、距当前消息较远的某条消息时，才用 ")
                     .append(replyTool)

@@ -1,5 +1,6 @@
 package io.github.mangomaner.mangobot.module.agent.core;
 
+import io.github.mangomaner.mangobot.module.agent.model.enums.BotType;
 import io.github.mangomaner.mangobot.module.agent.model.enums.PromptLayer;
 import io.github.mangomaner.mangobot.module.agent.model.enums.SessionSource;
 import lombok.extern.slf4j.Slf4j;
@@ -11,9 +12,10 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 出厂提示词模板加载器：读取 resources/prompt_norm/&lt;source&gt;/&lt;layer&gt;.md。
+ * 出厂提示词模板加载器：读取 resources/prompt_norm/&lt;source&gt;/&lt;layer&gt;.md（框架规范），
+ * 或 &lt;source&gt;/&lt;botType&gt;/&lt;layer&gt;.md（人格/行为按 bot 类型）。
  *
- * <p>模板作为 GLOBAL 之上的继承链地板（TEMPLATE），不播种 DB；加载后按 (source,layer) 缓存。
+ * <p>模板作为 GLOBAL 之上的继承链地板（TEMPLATE），不播种 DB；加载后按完整 path 缓存（source/类型/层 天然隔离）。
  */
 @Slf4j
 @Component
@@ -23,26 +25,36 @@ public class PromptTemplateLoader {
 
     private final ConcurrentHashMap<String, String> cache = new ConcurrentHashMap<>();
 
-    /** 读取出厂模板；缺失时返回 null（渲染器跳过该层）。 */
+    /** 读取出厂模板（默认模仿人类）；缺失时返回 null（渲染器跳过该层）。 */
     public String load(SessionSource source, PromptLayer layer) {
-        return cache.computeIfAbsent(key(source, layer), k -> readTemplate(source, layer));
+        return load(source, layer, BotType.defaultType());
     }
 
-    private String readTemplate(SessionSource source, PromptLayer layer) {
+    /**
+     * 按 bot 类型读取出厂模板；缺失时返回 null。
+     *
+     * <p>目录选择：框架规范任意类型共用 <code>prompt_norm/&lt;source&gt;/&lt;layer&gt;.md</code>；
+     * 人格/行为统一读 <code>prompt_norm/&lt;source&gt;/&lt;botType&gt;/&lt;layer&gt;.md</code>（human/roleplay/instruction 各一目录）。
+     */
+    public String load(SessionSource source, PromptLayer layer, BotType botType) {
+        String dir = layer == PromptLayer.FRAMEWORK
+                ? source.getSourceKey()
+                : source.getSourceKey() + "/" + botType.getCode();
+        String path = String.format(BASE_PATH, dir, layer.getCode());
+        return cache.computeIfAbsent(path, key -> readTemplate(path));
+    }
+
+    private String readTemplate(String path) {
         try {
-            ClassPathResource resource = new ClassPathResource(String.format(BASE_PATH, source.getSourceKey(), layer.getCode()));
+            ClassPathResource resource = new ClassPathResource(path);
             if (!resource.exists()) {
-                log.warn("Prompt template not found: {}/{}", source.getSourceKey(), layer.getCode());
+                log.warn("Prompt template not found: {}", path);
                 return null;
             }
             return StreamUtils.copyToString(resource.getInputStream(), StandardCharsets.UTF_8).trim();
         } catch (Exception e) {
-            log.error("Failed to load prompt template: {}/{}", source.getSourceKey(), layer.getCode(), e);
+            log.error("Failed to load prompt template: {}", path, e);
             return null;
         }
-    }
-
-    private static String key(SessionSource source, PromptLayer layer) {
-        return source.getSourceKey() + "/" + layer.getCode();
     }
 }

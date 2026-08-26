@@ -54,11 +54,13 @@ public class ChatMessageController {
      * 获取会话下的所有消息列表
      */
     @GetMapping("/list")
-    @Operation(summary = "获取消息列表", description = "获取指定会话下的所有消息，按时间正序排列")
+    @Operation(summary = "获取消息列表", description = "按 id 正序分页返回指定会话的消息；beforeId 为空取最近一页，非空取该 id 之前的更早一页")
     public BaseResponse<List<ChatMessageWebVO>> listMessagesBySessionId(
-            @Parameter(description = "会话ID", required = true) @RequestParam Integer sessionId) {
-        log.info("获取消息列表，sessionId: {}", sessionId);
-        List<ChatMessageWebVO> messages = chatMessageService.listMessagesBySessionId(sessionId);
+            @Parameter(description = "会话ID", required = true) @RequestParam Integer sessionId,
+            @Parameter(description = "翻页游标：取更早消息时传当前最旧消息 id") @RequestParam(required = false) Integer beforeId,
+            @Parameter(description = "每页条数，默认30") @RequestParam(required = false, defaultValue = "30") Integer limit) {
+        log.info("获取消息列表，sessionId: {}, beforeId: {}, limit: {}", sessionId, beforeId, limit);
+        List<ChatMessageWebVO> messages = chatMessageService.listMessagesBySessionId(sessionId, beforeId, limit);
         return ResultUtils.success(messages);
     }
 

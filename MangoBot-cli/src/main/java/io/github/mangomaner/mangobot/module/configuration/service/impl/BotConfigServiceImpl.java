@@ -227,6 +227,7 @@ public class BotConfigServiceImpl extends ServiceImpl<BotConfigMapper, BotConfig
         if (botId == null) {
             return updateConfigValue(configKey, configValue);
         }
+        configValue = normalizeConfigValue(configValue);
 
         // 不可编辑的默认配置既不复制到 Bot 专属，也不允许修改
         if (!isEditableDefault(configKey)) {
@@ -369,6 +370,7 @@ public class BotConfigServiceImpl extends ServiceImpl<BotConfigMapper, BotConfig
 
     @Override
     public boolean updateConfigValue(String configKey, String configValue) {
+        configValue = normalizeConfigValue(configValue);
         LambdaQueryWrapper<BotConfig> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(BotConfig::getConfigKey, configKey)
                .isNull(BotConfig::getBotId);
@@ -429,6 +431,24 @@ public class BotConfigServiceImpl extends ServiceImpl<BotConfigMapper, BotConfig
                .isNull(BotConfig::getBotId);
         BotConfig config = this.getOne(wrapper);
         return config == null || isEditable(config);
+    }
+
+    /**
+     * 归一化前端传来的配置值。
+     *
+     * <p>前端 axios 会把「字符串请求体 + application/json」自动 JSON 编码（如 {@code "instruction"}），
+     * Spring 的 {@code StringHttpMessageConverter} 优先读取原始字节导致双引号被原样入库。这里剥掉
+     * 首尾包裹的一对双引号，使所有幂等类型（STRING/BOOLEAN/SELECT/JSON 等）落库时去掉 JSON 字符串包装；
+     * 仅当值以 {@code "} 开头且以 {@code "} 结尾时才处理，不影响 JSON 对象/数组等其它结构。
+     */
+    private String normalizeConfigValue(String configValue) {
+        if (configValue == null || configValue.length() < 2) {
+            return configValue;
+        }
+        if (configValue.startsWith("\"") && configValue.endsWith("\"")) {
+            return configValue.substring(1, configValue.length() - 1);
+        }
+        return configValue;
     }
 
     private BotConfigVO convertToVO(BotConfig config) {

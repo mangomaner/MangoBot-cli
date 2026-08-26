@@ -168,6 +168,7 @@ INSERT INTO bot_configs (bot_id, config_key, config_value, config_type, metadata
     (NULL, 'group.record_list', '[]', 'GROUP_LIST_SELECTOR', '{"listType":"group"}', '群聊消息记录名单', '名单内的群聊始终记录消息', 'message_record', 1),
     (NULL, 'private.record_list', '[]', 'PRIVATE_LIST_SELECTOR', '{"listType":"private"}', '私聊消息记录名单', '名单内的私聊始终记录消息', 'message_record', 1),
     (NULL, 'bot.markdown_to_txt', 'true', 'BOOLEAN', NULL, '将md格式转为纯文本发送', '', 'format', 1),
+    (NULL, 'bot.type', 'human', 'SELECT', '{"options":[{"label":"模仿人类","value":"human"},{"label":"角色扮演","value":"roleplay"},{"label":"指令遵循","value":"instruction"}]}', 'Bot 类型', '决定 bot 使用哪套默认人格/行为模板：模仿人类=群友混入感；角色扮演=按角色卡饰演；指令遵循=听指令执行的助手。', 'prompt', 1),
     (NULL, 'prompt.editor', '/prompt/edit', 'LINK', NULL, '系统提示词编辑入口', '进入统一的三层提示词编辑页（框架规范 / 人格与行为 / 风格数据集）, 'prompt', 0);
 -- 上述列表示例：["123456789","1011121314"]，true为白名单，false为黑名单
 
@@ -454,6 +455,7 @@ CREATE TABLE IF NOT EXISTS style_dataset (
     description       TEXT,
     source            TEXT NOT NULL,                 -- group / private（仅这两端支持风格注入）
     create_type       TEXT NOT NULL DEFAULT 'created',  -- created / imported
+    dataset_type      TEXT NOT NULL DEFAULT 'chatlog',  -- chatlog（模仿人类的对话剧本）/ character（角色台词）
     source_session_id INTEGER,                       -- 导入时记录来源会话 id
     roles             TEXT,                          -- JSON 数组: [{"name":"群友A"},...]
     messages          TEXT,                          -- JSON 数组: [{"roleName":"群友A","text":"..."},...]

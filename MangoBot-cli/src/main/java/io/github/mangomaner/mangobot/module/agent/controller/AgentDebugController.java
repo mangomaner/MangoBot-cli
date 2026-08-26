@@ -82,10 +82,24 @@ public class AgentDebugController {
         return new BaseResponse<>(0, vo, "");
     }
 
-    @GetMapping("/record/list")
-    @Operation(summary = "列出会话已记录的所有模型调用", description = "按时间先后返回每次调用的 time/input/usage")
-    public BaseResponse<List<Map<String, Object>>> listRecords(@RequestParam Integer sessionId) {
-        return new BaseResponse<>(0, agentDebugRecorder.listRecords(sessionId), "");
+    @GetMapping("/record/summary")
+    @Operation(summary = "列出会话已记录调用的轻量摘要", description = "仅返回每条记录的 index/time/usage/triggerText，供列表渲染，避免传输完整上下文")
+    public BaseResponse<List<Map<String, Object>>> listRecordSummaries(@RequestParam Integer sessionId) {
+        return new BaseResponse<>(0, agentDebugRecorder.listRecordSummaries(sessionId), "");
+    }
+
+    @GetMapping("/record/detail")
+    @Operation(summary = "取某条调试记录的完整内容", description = "按持久化记录下标（summary 的 index）返回该条记录的完整 time/input/output/usage")
+    public BaseResponse<Map<String, Object>> recordDetail(@RequestParam Integer sessionId,
+                                                          @RequestParam Integer index) {
+        if (sessionId == null || index == null || index < 0) {
+            return new BaseResponse<>(ErrorCode.PARAMS_ERROR);
+        }
+        Map<String, Object> record = agentDebugRecorder.getRecord(sessionId, index);
+        if (record == null) {
+            return new BaseResponse<>(ErrorCode.NOT_FOUND_ERROR.getCode(), null, "未找到对应记录");
+        }
+        return new BaseResponse<>(0, record, "");
     }
 
     @DeleteMapping("/record/single")

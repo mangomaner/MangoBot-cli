@@ -74,8 +74,9 @@ public class StyleDatasetServiceImpl implements StyleDatasetService {
         dataset.setDescription(request.getDescription());
         dataset.setSource(request.getSource());
         dataset.setCreateType("created");
-        dataset.setRoles(writeJson(request.getRoles()));
-        dataset.setMessages(writeJson(request.getMessages()));
+        dataset.setDatasetType(normalizeType(request.getDatasetType()));
+        dataset.setRoles(writeJson(effectiveRoles(request)));
+        dataset.setMessages(writeJson(effectiveMessages(request)));
         fillTimestamps(dataset, true);
         styleDatasetMapper.insert(dataset);
         return toDetailVO(dataset);
@@ -91,8 +92,9 @@ public class StyleDatasetServiceImpl implements StyleDatasetService {
         dataset.setName(request.getName());
         dataset.setDescription(request.getDescription());
         dataset.setSource(request.getSource());
-        dataset.setRoles(writeJson(request.getRoles()));
-        dataset.setMessages(writeJson(request.getMessages()));
+        dataset.setDatasetType(normalizeType(request.getDatasetType()));
+        dataset.setRoles(writeJson(effectiveRoles(request)));
+        dataset.setMessages(writeJson(effectiveMessages(request)));
         dataset.setUpdatedAt(System.currentTimeMillis());
         styleDatasetMapper.updateById(dataset);
         return toDetailVO(dataset);
@@ -163,6 +165,7 @@ public class StyleDatasetServiceImpl implements StyleDatasetService {
         dataset.setDescription(request.getDescription());
         dataset.setSource(source.getSourceKey());
         dataset.setCreateType("imported");
+        dataset.setDatasetType("chatlog");
         dataset.setSourceSessionId(request.getSourceSessionId());
         dataset.setRoles(writeJson(roles));
         dataset.setMessages(writeJson(styleMessages));
@@ -205,11 +208,15 @@ public class StyleDatasetServiceImpl implements StyleDatasetService {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "数据集名称不能为空");
         }
         parseSource(request.getSource());
-        if (request.getRoles() == null || request.getRoles().isEmpty()) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "至少需要一个角色");
-        }
         if (request.getMessages() == null || request.getMessages().isEmpty()) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "至少需要一条消息");
+        }
+        // 角色风格数据集：单一隐式角色，前端不提交角色列表，无需校验角色/消息归属
+        if ("character".equals(normalizeType(request.getDatasetType()))) {
+            return;
+        }
+        if (request.getRoles() == null || request.getRoles().isEmpty()) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "至少需要一个角色");
         }
         List<String> roleNames = request.getRoles().stream().map(StyleRole::name).toList();
         for (StyleMessage message : request.getMessages()) {
@@ -219,6 +226,29 @@ public class StyleDatasetServiceImpl implements StyleDatasetService {
         }
     }
 
+    /** 角色风格数据集的隐式单一角色名（前端不管理角色，渲染时也不带角色前缀） */
+    private static final String DEFAULT_ROLE = "角色";
+
+    /** 落地角色列表：角色风格恒为单一角色，忽略前端传值 */
+    private List<StyleRole> effectiveRoles(StyleDatasetRequest request) {
+        if ("character".equals(normalizeType(request.getDatasetType()))) {
+            return List.of(new StyleRole(DEFAULT_ROLE));
+        }
+        return request.getRoles() == null ? List.of() : request.getRoles();
+    }
+
+    /** 落地消息列表：角色风格把每条消息归属到默认角色；对话剧本保留原角色 */
+    private List<StyleMessage> effectiveMessages(StyleDatasetRequest request) {
+        if ("character".equals(normalizeType(request.getDatasetType()))) {
+            List<StyleMessage> result = new ArrayList<>();
+            for (StyleMessage message : request.getMessages()) {
+                result.add(new StyleMessage(DEFAULT_ROLE, message.content(), message.replyToIndex()));
+            }
+            return result;
+        }
+        return request.getMessages() == null ? List.of() : request.getMessages();
+    }
+
     private StyleDatasetVO toListVO(StyleDataset dataset) {
         return StyleDatasetVO.builder()
                 .id(dataset.getId())
@@ -226,6 +256,7 @@ public class StyleDatasetServiceImpl implements StyleDatasetService {
                 .description(dataset.getDescription())
                 .source(dataset.getSource())
                 .createType(dataset.getCreateType())
+                .datasetType(dataset.getDatasetType())
                 .sourceSessionId(dataset.getSourceSessionId())
                 .roleCount(parseRoles(dataset.getRoles()).size())
                 .messageCount(parseMessages(dataset.getMessages()).size())
@@ -241,6 +272,7 @@ public class StyleDatasetServiceImpl implements StyleDatasetService {
                 .description(dataset.getDescription())
                 .source(dataset.getSource())
                 .createType(dataset.getCreateType())
+                .datasetType(dataset.getDatasetType())
                 .sourceSessionId(dataset.getSourceSessionId())
                 .roles(parseRoles(dataset.getRoles()))
                 .messages(parseMessages(dataset.getMessages()))
@@ -295,5 +327,13 @@ public class StyleDatasetServiceImpl implements StyleDatasetService {
         } catch (IllegalArgumentException e) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "非法来源: " + source);
         }
+    }
+
+    /** 归一化数据集类型：空或非法一律回退 chatlog（模仿人类的对话剧本）。 */
+    private String normalizeType(String datasetType) {
+        if ("character".equals(datasetType)) {
+            return "character";
+        }
+        return "chatlog";
     }
 }

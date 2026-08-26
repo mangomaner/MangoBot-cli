@@ -50,7 +50,7 @@ public class GroupMessageSendTool {
         return withCount(context, "sendGroupMessage");
     }
 
-    @Tool(description = "获取可发送的表情包列表，返回表情包的 fileId 和描述信息，不占用回复次数")
+    @Tool(description = "获取可发送的表情包列表，仅返回带描述的表情包，返回其 fileId 和描述信息，不占用回复次数")
     public String getMemeImages() {
         List<BotFiles> memeFiles = MangoFileApi.getFilesByType("meme");
 
@@ -58,16 +58,25 @@ public class GroupMessageSendTool {
             return "当前没有可用的表情包";
         }
 
-        java.util.Collections.shuffle(memeFiles, random);
-        int count = Math.min(3, memeFiles.size());
+        // 只推荐有描述的表情包，让模型能根据描述判断图片内容，避免发一张无法预期的图
+        List<BotFiles> described = memeFiles.stream()
+                .filter(file -> file.getDescription() != null && !file.getDescription().isBlank())
+                .collect(java.util.stream.Collectors.toList());
+
+        if (described.isEmpty()) {
+            return "当前没有带描述的表情包，暂时没法判断图片内容，请直接用文字回复";
+        }
+
+        java.util.Collections.shuffle(described, random);
+        int count = Math.min(3, described.size());
 
         StringBuilder result = new StringBuilder("推荐的表情包：\n");
         for (int i = 0; i < count; i++) {
-            BotFiles file = memeFiles.get(i);
+            BotFiles file = described.get(i);
             result.append(String.format("%d. fileId: %s, 描述: %s\n",
                     i + 1,
                     file.getFileId(),
-                    file.getDescription() != null ? file.getDescription() : "无描述"));
+                    file.getDescription()));
         }
         result.append("\n使用 sendGroupImage 工具发送表情包，传入对应的 fileId");
 

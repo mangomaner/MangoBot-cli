@@ -1,6 +1,7 @@
 package io.github.mangomaner.mangobot.module.agent.service;
 
 import io.github.mangomaner.mangobot.module.agent.model.dto.PromptNormRequest;
+import io.github.mangomaner.mangobot.module.agent.model.enums.BotType;
 import io.github.mangomaner.mangobot.module.agent.model.enums.PromptLayer;
 import io.github.mangomaner.mangobot.module.agent.model.enums.PromptScope;
 import io.github.mangomaner.mangobot.module.agent.model.enums.SessionSource;
@@ -21,6 +22,9 @@ public interface PromptNormService {
 
     /** 编辑页聚合：返回请求作用域下三层（framework/persona/behavior）的编辑信息。 */
     PromptEditVO getEditPage(PromptScope scope, String botId, SessionSource source, String chatId);
+
+    /** 编辑页聚合（按指定 Bot 类型预览模板地板）：overrideType 非 null 时仅影响模板地板预览，不写库。 */
+    PromptEditVO getEditPage(PromptScope scope, String botId, SessionSource source, String chatId, BotType overrideType);
 
     /** 保存某层内容（按作用域 upsert）。 */
     void save(PromptNormRequest request);

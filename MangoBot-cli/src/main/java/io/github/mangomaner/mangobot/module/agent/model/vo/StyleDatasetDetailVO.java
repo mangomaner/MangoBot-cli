@@ -31,6 +31,9 @@ public class StyleDatasetDetailVO {
     @Schema(description = "创建类型：created / imported")
     private String createType;
 
+    @Schema(description = "数据集类型：chatlog / character")
+    private String datasetType;
+
     @Schema(description = "导入来源会话 id（人工创建为空）")
     private Long sourceSessionId;
 

@@ -3,12 +3,14 @@ package io.github.mangomaner.mangobot.module.agent.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import io.github.mangomaner.mangobot.module.agent.core.PromptTemplateLoader;
 import io.github.mangomaner.mangobot.module.agent.model.domain.PromptNorm;
+import io.github.mangomaner.mangobot.module.agent.model.enums.BotType;
 import io.github.mangomaner.mangobot.module.agent.model.dto.PromptNormRequest;
 import io.github.mangomaner.mangobot.module.agent.model.enums.PromptLayer;
 import io.github.mangomaner.mangobot.module.agent.model.enums.PromptScope;
 import io.github.mangomaner.mangobot.module.agent.model.enums.SessionSource;
 import io.github.mangomaner.mangobot.module.agent.model.vo.PromptEditVO;
 import io.github.mangomaner.mangobot.module.agent.model.vo.PromptLayerVO;
+import io.github.mangomaner.mangobot.module.agent.service.BotTypeService;
 import io.github.mangomaner.mangobot.module.agent.service.PromptNormService;
 import io.github.mangomaner.mangobot.system.common.ErrorCode;
 import io.github.mangomaner.mangobot.system.exception.BusinessException;
@@ -41,6 +43,7 @@ public class PromptNormServiceImpl implements PromptNormService {
 
     private final PromptNormMapper promptNormMapper;
     private final PromptTemplateLoader templateLoader;
+    private final BotTypeService botTypeService;
 
     @Override
     public String resolveContent(String botId, SessionSource source, String chatId, PromptLayer layer) {
@@ -49,10 +52,15 @@ public class PromptNormServiceImpl implements PromptNormService {
 
     @Override
     public PromptEditVO getEditPage(PromptScope scope, String botId, SessionSource source, String chatId) {
+        return getEditPage(scope, botId, source, chatId, null);
+    }
+
+    @Override
+    public PromptEditVO getEditPage(PromptScope scope, String botId, SessionSource source, String chatId, BotType overrideType) {
         validateScope(scope, source, botId, chatId);
         List<PromptLayerVO> layers = new ArrayList<>(PromptLayer.values().length);
         for (PromptLayer layer : PromptLayer.values()) {
-            Resolved resolved = resolve(botId, source, chatId, layer);
+            Resolved resolved = resolve(botId, source, chatId, layer, overrideType);
             PromptLayerVO vo = PromptLayerVO.builder()
                     .layer(layer.getCode())
                     .title(layer.getDescription())
@@ -116,6 +124,11 @@ public class PromptNormServiceImpl implements PromptNormService {
 
     /** 返回该层实际生效内容与生效来源 */
     private Resolved resolve(String botId, SessionSource source, String chatId, PromptLayer layer) {
+        return resolve(botId, source, chatId, layer, null);
+    }
+
+    /** 模板地板可被 overrideType 覆盖（仅编辑页预览用，不写库）；web 恒按模仿人类 */
+    private Resolved resolve(String botId, SessionSource source, String chatId, PromptLayer layer, BotType overrideType) {
         List<PromptScope> chain = source == SessionSource.WEB
                 ? List.of(PromptScope.GLOBAL)
                 : List.of(PromptScope.SESSION, PromptScope.BOT, PromptScope.GLOBAL);
@@ -125,8 +138,15 @@ public class PromptNormServiceImpl implements PromptNormService {
                 return new Resolved(row.getContent(), scope.getCode());
             }
         }
-        String template = templateLoader.load(source, layer);
+        // 模板地板按 bot 类型区分；编辑页预览时用 overrideType，web 恒按模仿人类
+        BotType effective = source == SessionSource.WEB ? BotType.HUMAN : botTypeEffective(botId, overrideType);
+        String template = templateLoader.load(source, layer, effective);
         return new Resolved(template != null ? template : "", "TEMPLATE");
+    }
+
+    /** overrideType 非 null 即用 override；否则读 bot 实际类型 */
+    private BotType botTypeEffective(String botId, BotType overrideType) {
+        return overrideType != null ? overrideType : botTypeService.getBotType(botId);
     }
 
     /** 按唯一键 (scope, source, bot_id, chat_id, layer) 查询；bot/chat 字段按作用域归一化 */

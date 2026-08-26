@@ -26,6 +26,9 @@ public class StyleDatasetRequest {
     @Schema(description = "来源：group / private", requiredMode = Schema.RequiredMode.REQUIRED)
     private String source;
 
+    @Schema(description = "数据集类型：chatlog（对话剧本）/ character（角色台词），缺省 chatlog")
+    private String datasetType;
+
     @Schema(description = "角色列表（至少 1 个）")
     private List<StyleRole> roles;
 
