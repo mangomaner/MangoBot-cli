@@ -282,7 +282,8 @@ public class AgentCapabilityController {
         }
         config.setEnabled(false);
         skillConfigService.save(config);
-        
+        skillManager.refreshSourcePluginDirs();
+
         return new BaseResponse<>(0, config, "");
     }
 
@@ -304,7 +305,8 @@ public class AgentCapabilityController {
         if (request.getSkillContent() != null) {
             skillManager.writeSkillContent(config.getSkillPath(), request.getSkillContent());
         }
-        
+        skillManager.refreshSourcePluginDirs();
+
         return new BaseResponse<>(0, true, "");
     }
 
@@ -318,6 +320,7 @@ public class AgentCapabilityController {
         boolean newEnabled = !Boolean.TRUE.equals(config.getEnabled());
         config.setEnabled(newEnabled);
         skillConfigService.updateById(config);
+        skillManager.refreshSourcePluginDirs();
         return new BaseResponse<>(0, newEnabled, "");
     }
 
@@ -328,6 +331,7 @@ public class AgentCapabilityController {
             @RequestBody UpdateEnabledListRequest request) {
         try {
             skillConfigService.updateEnabledList(id, request.getEnabledList());
+            skillManager.refreshSourcePluginDirs();
             return new BaseResponse<>(0, true, "");
         } catch (IllegalArgumentException e) {
             return new BaseResponse<>(ErrorCode.PARAMS_ERROR.getCode(), false, e.getMessage());
@@ -346,6 +350,7 @@ public class AgentCapabilityController {
         }
         skillManager.deleteSkillDirectory(config.getSkillPath());
         skillConfigService.removeById(id);
+        skillManager.refreshSourcePluginDirs();
         return new BaseResponse<>(0, true, "");
     }
 
@@ -367,6 +372,7 @@ public class AgentCapabilityController {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "请上传 ZIP 文件");
         }
         AgentSkillConfig config = skillManager.importFromZip(file.getInputStream());
+        skillManager.refreshSourcePluginDirs();
         return new BaseResponse<>(0, config, "");
     }
 
@@ -376,6 +382,7 @@ public class AgentCapabilityController {
             @RequestBody @Valid ImportSkillRequest request) throws IOException {
         AgentSkillConfig config = skillManager.importFromMarkdown(
                 request.getSkillName(), request.getDescription(), request.getContent());
+        skillManager.refreshSourcePluginDirs();
         return new BaseResponse<>(0, config, "");
     }
 

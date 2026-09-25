@@ -1,6 +1,7 @@
 package io.github.mangomaner.mangobot.module.agent.capability.skill;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.mangomaner.mangobot.module.agent.model.domain.AgentSkillConfig;
 import io.github.mangomaner.mangobot.module.agent.model.enums.SessionSource;
@@ -17,6 +18,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -67,11 +69,14 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class SkillManager {
 
-    /** 插件目录：claude 的 {@code --plugin-dir} 指向这里 */
+    /** 插件目录：claude 的 {@code --plugin-dir} 指向这里（主库，能力页用） */
     private static final String PLUGIN_DIR = "data/capabilities/skills";
 
     /** 技能内容目录：插件目录下的 skills/ 子目录，每个技能一格 */
     private static final String SKILLS_DIR = PLUGIN_DIR + "/skills";
+
+    /** 按来源生成的插件目录根：{@code data/capabilities/plugins/<sourceKey>/} */
+    private static final String SOURCE_PLUGIN_ROOT = "data/capabilities/plugins";
 
     private final AgentSkillConfigService skillConfigService;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -83,6 +88,19 @@ public class SkillManager {
      */
     public Path getPluginDirectory() {
         return FileUtils.resolvePath(PLUGIN_DIR);
+    }
+
+    /**
+     * 获取指定来源的插件目录——由 {@link #refreshSourcePluginDirs()} 按技能启用来源生成。
+     *
+     * <p>之所以按来源分目录而不是共用一个：claude 的 {@code --plugin-dir} 是整目录下发，
+     * 一个目录里的技能会对所有会话可见，做不到"同一份技能库、群聊看得到的和 web 看得到的不一样"。
+     *
+     * @param source 会话来源
+     * @return 该来源的插件目录路径（可能尚未生成，内容为空）
+     */
+    public Path getPluginDirectory(SessionSource source) {
+        return FileUtils.resolvePath(SOURCE_PLUGIN_ROOT).resolve(source.getSourceKey());
     }
 
     /**
@@ -122,6 +140,86 @@ public class SkillManager {
         } catch (IOException e) {
             log.error("Failed to scan skills directory", e);
         }
+
+        refreshSourcePluginDirs();
+    }
+
+    /**
+     * 按「技能启用来源」重建三个来源的插件目录（web / group / private）。
+     *
+     * <p>规则：主库里 {@code enabled == true} 且 {@code enabled_list} 含该来源的技能，整目录复制过去；
+     * 三个目标目录先清空再复制。技能目录很小（就是些 markdown），重建比做增量diff简单得多。
+     *
+     * <p>调用时机是显式的——{@link #init()} 一次，加上能力页每一个改变技能状态的端点结尾。
+     * 不做"惰性感知变更"：那要求在下发路径上比对 mtime，出错时很难查。
+     */
+    public void refreshSourcePluginDirs() {
+        List<AgentSkillConfig> enabledSkills = skillConfigService.listEnabled();
+        for (SessionSource source : SessionSource.values()) {
+            Path target = getPluginDirectory(source);
+            try {
+                if (Files.exists(target)) {
+                    deleteRecursively(target);
+                }
+                Path skillsDir = target.resolve("skills");
+                FileUtils.createDirectory(skillsDir);
+
+                int copied = 0;
+                for (AgentSkillConfig skill : enabledSkills) {
+                    if (!supportsSource(skill, source)) {
+                        continue;
+                    }
+                    Path src = getSkillsDirectory().resolve(skill.getSkillPath());
+                    if (!Files.isDirectory(src)) {
+                        log.warn("技能「{}」已启用但目录不存在，跳过：{}", skill.getSkillPath(), src);
+                        continue;
+                    }
+                    copyRecursively(src, skillsDir.resolve(skill.getSkillPath()));
+                    copied++;
+                }
+                log.info("来源插件目录已重建：source={} dir={} skills={}",
+                        source.getSourceKey(), target, copied);
+            } catch (IOException e) {
+                log.error("重建来源插件目录失败：source={} dir={}", source.getSourceKey(), target, e);
+            }
+        }
+    }
+
+    /** 技能对该来源是否启用：总开关打开，且 enabled_list 里有这个来源。 */
+    private boolean supportsSource(AgentSkillConfig skill, SessionSource source) {
+        if (!Boolean.TRUE.equals(skill.getEnabled())) {
+            return false;
+        }
+        return parseSourceKeys(skill.getEnabledList()).contains(source.getSourceKey());
+    }
+
+    /** 解析 enabled_list；空或坏 JSON 一律按「没有来源」处理，不让一条坏配置拖垮整次重建。 */
+    private List<String> parseSourceKeys(String json) {
+        if (json == null || json.isBlank()) {
+            return List.of();
+        }
+        try {
+            return objectMapper.readValue(json, new TypeReference<List<String>>() {
+            });
+        } catch (JsonProcessingException e) {
+            log.warn("技能来源列表不是合法 JSON，按「无来源」处理：{}", json);
+            return List.of();
+        }
+    }
+
+    /** 整目录复制（技能目录含 references/ examples/ scripts/ 等资源，必须一起带过去）。 */
+    private void copyRecursively(Path source, Path target) throws IOException {
+        if (Files.isDirectory(source)) {
+            FileUtils.createDirectory(target);
+            try (DirectoryStream<Path> stream = Files.newDirectoryStream(source)) {
+                for (Path child : stream) {
+                    copyRecursively(child, target.resolve(child.getFileName().toString()));
+                }
+            }
+            return;
+        }
+        FileUtils.createParentDirectories(target);
+        Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
     }
 
     /**

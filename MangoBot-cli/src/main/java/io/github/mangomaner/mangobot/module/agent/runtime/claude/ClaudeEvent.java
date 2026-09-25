@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * claude 进程输出的一行 stream-json。
@@ -22,6 +24,11 @@ public record ClaudeEvent(JsonNode payload, long receivedAtMillis) {
     public static final String TYPE_ASSISTANT = "assistant";
     public static final String TYPE_USER = "user";
     public static final String TYPE_RESULT = "result";
+    public static final String TYPE_STREAM_EVENT = "stream_event";
+
+    public static final String EVENT_CONTENT_BLOCK_START = "content_block_start";
+    public static final String EVENT_CONTENT_BLOCK_DELTA = "content_block_delta";
+    public static final String EVENT_CONTENT_BLOCK_STOP = "content_block_stop";
 
     private static final JsonNode EMPTY_ARRAY = JsonNodeFactory.instance.arrayNode();
 
@@ -48,10 +55,52 @@ public record ClaudeEvent(JsonNode payload, long receivedAtMillis) {
         return TYPE_ASSISTANT.equals(type());
     }
 
+    public boolean isUser() {
+        return TYPE_USER.equals(type());
+    }
+
+    /** 是否为 {@code --include-partial-messages} 打开后逐块吐出的增量事件。 */
+    public boolean isStreamEvent() {
+        return TYPE_STREAM_EVENT.equals(type());
+    }
+
+    /**
+     * {@code stream_event} 的 {@code event.type}，取值见 {@code content_block_start} 等常量；
+     * 非增量事件返回空串。
+     */
+    public String streamEventType() {
+        return payload.path("event").path("type").asText("");
+    }
+
+    /** {@code stream_event} 的内容块序号（{@code event.index}）；缺失返回 -1。 */
+    public int streamEventIndex() {
+        return payload.path("event").path("index").asInt(-1);
+    }
+
+    /** {@code content_block_start} 里那一块的类型（{@code text} / {@code thinking} / {@code tool_use}）。 */
+    public String streamBlockType() {
+        return payload.path("event").path("content_block").path("type").asText("");
+    }
+
     /** {@code message.content} 块数组；非消息类事件返回空数组。 */
     public JsonNode contentBlocks() {
         JsonNode content = payload.path("message").path("content");
         return content.isArray() ? content : EMPTY_ARRAY;
+    }
+
+    /** 消息里所有 {@code tool_use} 块；非消息类事件返回空列表。 */
+    public List<JsonNode> toolUseBlocks() {
+        return blocksOfType("tool_use");
+    }
+
+    /** 消息里所有 {@code tool_result} 块（claude 把它们放在一个 {@code user} 事件里回传）。 */
+    public List<JsonNode> toolResultBlocks() {
+        return blocksOfType("tool_result");
+    }
+
+    /** {@code result} 事件的 token 用量对象；缺失时返回 missing node（{@link JsonNode#isMissingNode()}）。 */
+    public JsonNode usage() {
+        return payload.path("usage");
     }
 
     /** 拼接本轮 assistant 的全部 text 块。 */
@@ -128,5 +177,16 @@ public record ClaudeEvent(JsonNode payload, long receivedAtMillis) {
             }
         }
         return sb.toString();
+    }
+
+    /** 按块类型挑出 {@code message.content} 里的块，保持原有顺序。 */
+    private List<JsonNode> blocksOfType(String blockType) {
+        List<JsonNode> blocks = new ArrayList<>();
+        for (JsonNode block : contentBlocks()) {
+            if (blockType.equals(block.path("type").asText(""))) {
+                blocks.add(block);
+            }
+        }
+        return blocks;
     }
 }

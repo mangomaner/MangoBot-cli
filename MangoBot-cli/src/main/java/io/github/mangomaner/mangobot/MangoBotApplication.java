@@ -7,7 +7,9 @@ import io.github.mangomaner.mangobot.module.agent.capability.skill.SkillManager;
 import io.github.mangomaner.mangobot.module.agent.capability.tool.JavaToolMcpServer;
 import io.github.mangomaner.mangobot.module.agent.capability.tool.builtin.DateTimeTool;
 import io.github.mangomaner.mangobot.module.agent.core.AgentWorkspaceManager;
+import io.github.mangomaner.mangobot.module.agent.model.enums.SessionSource;
 import io.github.mangomaner.mangobot.module.agent.runtime.claude.ClaudeRuntimeManager;
+import io.github.mangomaner.mangobot.message_handler.response.tools.QqReplyTool;
 import io.github.mangomaner.mangobot.plugin.core.PluginManager;
 import lombok.extern.slf4j.Slf4j;
 import org.mybatis.spring.annotation.MapperScan;
@@ -17,6 +19,10 @@ import org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.EnableAspectJAutoProxy;
 import org.springframework.scheduling.annotation.EnableScheduling;
+
+import java.util.Arrays;
+import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * MangoBot 主启动类
@@ -65,12 +71,18 @@ public class MangoBotApplication {
         pluginManager.init();
         log.info("[4/7] 插件加载完成");
 
-        // 内置工具先落进 agent_java_tool_config（幂等，默认禁用），MCP server 再按「启用的」挂上去。
+        // 内置工具先落进 agent_java_tool_config，MCP server 再按「启用的」挂上去。
         // 放在插件加载之后：插件在 init 里经 MangoToolApi 注册的工具也要一起被看见。
+        // 回复工具是 bot 的嘴，必须默认启用（registerBuiltinTool），否则新装环境 bot 不会说话。
+        MangoToolApi.registerBuiltinTool(QqReplyTool.class,
+                List.of(SessionSource.GROUP, SessionSource.PRIVATE));
         MangoToolApi.registerTool(DateTimeTool.class);
         javaToolMcpServer.init();
-        log.info("[5/7] Java 工具注册与 MCP server 初始化完成（暴露 {} 个工具）",
-                javaToolMcpServer.exposedToolCount());
+        log.info("[5/7] Java 工具注册与 MCP server 初始化完成（各来源暴露工具数：{}）",
+                Arrays.stream(SessionSource.values())
+                        .map(source -> source.getSourceKey() + "="
+                                + javaToolMcpServer.exposedToolCount(source))
+                        .collect(Collectors.joining(", ")));
 
         claudeRuntimeManager.init();
         if (claudeRuntimeManager.isReady()) {

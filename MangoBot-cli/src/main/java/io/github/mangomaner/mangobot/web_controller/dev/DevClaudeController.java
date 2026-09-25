@@ -7,6 +7,7 @@ import io.github.mangomaner.mangobot.module.agent.runtime.claude.ClaudeEvent;
 import io.github.mangomaner.mangobot.module.agent.runtime.claude.ClaudeRuntimeManager;
 import io.github.mangomaner.mangobot.module.agent.runtime.claude.ClaudeRuntimeProperties;
 import io.github.mangomaner.mangobot.module.agent.runtime.claude.ClaudeSession;
+import io.github.mangomaner.mangobot.module.agent.model.enums.SessionSource;
 import io.github.mangomaner.mangobot.module.configuration.model.domain.ModelEndpoint;
 import io.github.mangomaner.mangobot.system.common.BaseResponse;
 import io.github.mangomaner.mangobot.system.common.ResultUtils;
@@ -178,12 +179,23 @@ public class DevClaudeController {
      *
      * <p>会话 key 默认 {@code dev:default}，与真实 Bot 的会话（{@code botId:sourceKey}）完全隔离，
      * 手工测试不会污染线上会话。
+     *
+     * <p>{@code source} 决定下发哪个来源的技能与工具端点，手工验"群聊技能有没有下发"时就靠它。
+     * 它不进会话键——同一个 key 换个 source 会命中已经跑着的那个进程，看到的还是旧参数。
      */
     @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<String> stream(
             @RequestParam String message,
             @RequestParam(defaultValue = "dev") String botId,
-            @RequestParam(defaultValue = "default") String sourceKey) {
+            @RequestParam(defaultValue = "default") String sourceKey,
+            @RequestParam(defaultValue = "web") String source) {
+
+        SessionSource sessionSource;
+        try {
+            sessionSource = SessionSource.fromKey(source);
+        } catch (IllegalArgumentException e) {
+            return Flux.just(errorLine("bad-source: " + source), DONE);
+        }
 
         if (!runtimeManager.isReady()) {
             return Flux.just(errorLine("runtime-not-ready: " + runtimeManager.notReadyReason()), DONE);
@@ -191,7 +203,7 @@ public class DevClaudeController {
 
         ClaudeSession session;
         try {
-            session = runtimeManager.getOrCreate(botId, sourceKey);
+            session = runtimeManager.getOrCreate(botId, sourceKey, sessionSource);
         } catch (Exception e) {
             log.error("Failed to obtain claude session for dev stream", e);
             return Flux.just(errorLine("session-failed: " + e.getMessage()), DONE);

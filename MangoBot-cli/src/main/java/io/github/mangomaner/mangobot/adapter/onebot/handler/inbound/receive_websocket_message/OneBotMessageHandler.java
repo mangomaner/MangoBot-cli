@@ -46,12 +46,12 @@ public class OneBotMessageHandler implements WebSocketProtocolAdapter {
 
         try {
             OneBotEvent event = OneBotEventParser.parse(message);
-            
+
             if (event instanceof OneBotHeartbeatEvent heartbeat) {
                 sessionManager.updateHeartbeat(session, heartbeat.getInterval());
                 return;
             }
-            
+
             if (event instanceof OneBotLifecycleEvent lifecycle) {
                 long selfId = event.getSelfId();
                 sessionManager.registerSelfId(session, selfId);
@@ -59,6 +59,10 @@ public class OneBotMessageHandler implements WebSocketProtocolAdapter {
                 return;
             }
 
+            // 别在这里加 event == null 判断。反序列化器对没映射的 post_type 返回 null，
+            // 于是在这一行抛 NPE、被下面 catch 成一条带原始报文的 ERROR——这是故意的：
+            // 它是"有哪些事件类型还没被处理"的探针，静默跳过就等于把这个信号抹掉了。
+            // 要收口的话先建好对应的事件类，别改成 return。
             log.debug("收到事件: {}", event.getClass().getSimpleName());
             eventPublisher.publish(event);
             

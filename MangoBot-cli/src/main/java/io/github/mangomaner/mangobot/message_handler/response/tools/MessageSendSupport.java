@@ -18,19 +18,19 @@ import java.util.List;
  * 发送消息段构建：与具体会话来源（群/私聊）无关，只负责把模型字面或 bot_files
  * 组装成 OneBot 段列表。reply 段按 OneBot 惯例前置，图片一律读本地字节 base64 发送。
  */
-final class MessageSendSupport {
+public final class MessageSendSupport {
 
     private MessageSendSupport() {}
 
     /** 文本消息：解析模型字面里的 [@qq]，可选前置 reply 段 */
-    static OneBotSendingMessage textMessage(String message, Long replyToMessageId) {
+    public static OneBotSendingMessage textMessage(String message, Long replyToMessageId) {
         List<OneBotMessageSegment> segments = withReply(replyToMessageId);
         segments.addAll(MessageLexer.parse(message));
         return wrap(segments);
     }
 
     /** 图片消息：读 bot_files 本地字节 → base64://，可选前置 reply 段 */
-    static OneBotSendingMessage imageMessage(BotFiles file, Long replyToMessageId) {
+    public static OneBotSendingMessage imageMessage(BotFiles file, Long replyToMessageId) {
         List<OneBotMessageSegment> segments = withReply(replyToMessageId);
         segments.add(imageSegment(file));
         return wrap(segments);

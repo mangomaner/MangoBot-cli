@@ -14,8 +14,10 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 
 /**
@@ -49,6 +51,8 @@ public class ClaudeSession {
 
     private final Semaphore turnGate = new Semaphore(1);
     private final AtomicBoolean turnInFlight = new AtomicBoolean(false);
+    /** 最后一次见到动静的时刻，供空闲回收判定 */
+    private final AtomicLong lastActivityMillis = new AtomicLong(System.currentTimeMillis());
 
     private volatile ClaudeProcess process;
     private volatile Sinks.Many<ClaudeEvent> currentSink;
@@ -86,14 +90,40 @@ public class ClaudeSession {
      * {@code runtimeManager.isReady()}，要么自己 try/catch。
      */
     public Flux<ClaudeEvent> sendTurn(String text) {
+        return sendTurn(new ClaudeTurnInput(text));
+    }
+
+    /** 发一轮带图（或不带）的对话；阻塞等轮次槽位，dev / smoke 端点用。 */
+    public Flux<ClaudeEvent> sendTurn(ClaudeTurnInput turn) {
         ensureProcess();
         acquireGate();
+        return startTurn(turn);
+    }
 
+    /**
+     * 非阻塞地发一轮：轮次槽位被别人占着时立刻返回 {@code Optional.empty()}，不排队。
+     *
+     * <p>回复链路的轮次跑在独立的池上，线程很宝贵，所以不学 {@link #sendTurn} 那样阻塞在信号量上——
+     * 该不该等由调用方决定（QQ 侧是"进缓冲等下一轮"，web 侧是直接回一句"正在生成"）。
+     *
+     * @return 本轮的事件流；没抢到槽位时为空
+     */
+    public Optional<Flux<ClaudeEvent>> trySendTurn(ClaudeTurnInput turn) {
+        ensureProcess();
+        if (!turnGate.tryAcquire()) {
+            return Optional.empty();
+        }
+        turnInFlight.set(true);
+        return Optional.of(startTurn(turn));
+    }
+
+    private Flux<ClaudeEvent> startTurn(ClaudeTurnInput turn) {
         Sinks.Many<ClaudeEvent> sink = Sinks.many().unicast().onBackpressureBuffer();
         currentSink = sink;
+        touch();
 
         try {
-            process.writeLine(userTurnJson(text));
+            process.writeLine(userTurnJson(turn));
         } catch (IOException e) {
             currentSink = null;
             releaseGate();
@@ -117,6 +147,21 @@ public class ClaudeSession {
     public boolean isRunning() {
         ClaudeProcess p = process;
         return p != null && p.isAlive();
+    }
+
+    /** 标一下"这个会话还在被用"，空闲回收据此判断。 */
+    public void touch() {
+        lastActivityMillis.set(System.currentTimeMillis());
+    }
+
+    /** 是否有一轮正在跑。空闲回收据此跳过，免得把在途的一轮掐成半截。 */
+    public boolean isTurnInFlight() {
+        return turnInFlight.get();
+    }
+
+    /** 距上次动静过了多久（毫秒）。 */
+    public long idleMillis() {
+        return System.currentTimeMillis() - lastActivityMillis.get();
     }
 
     /** stderr 尾部，供诊断把失败原因暴露出来。 */
@@ -191,6 +236,7 @@ public class ClaudeSession {
             sink.tryEmitNext(event);
         }
         if (event.isResult()) {
+            touch();
             if (sink != null) {
                 sink.tryEmitComplete();
             }
@@ -235,15 +281,28 @@ public class ClaudeSession {
         }
     }
 
-    private String userTurnJson(String text) throws IOException {
+    private String userTurnJson(ClaudeTurnInput turn) throws IOException {
         ObjectNode root = MAPPER.createObjectNode();
         root.put("type", "user");
         ObjectNode message = root.putObject("message");
         message.put("role", "user");
         ArrayNode content = message.putArray("content");
+
+        // 图在前、文本在后（Anthropic 推荐的顺序）
+        if (turn.images() != null) {
+            for (ClaudeImage image : turn.images()) {
+                ObjectNode block = content.addObject();
+                block.put("type", "image");
+                ObjectNode source = block.putObject("source");
+                source.put("type", "base64");
+                source.put("media_type", image.mediaType());
+                source.put("data", image.base64Data());
+            }
+        }
+
         ObjectNode block = content.addObject();
         block.put("type", "text");
-        block.put("text", text);
+        block.put("text", turn.text() == null ? "" : turn.text());
         return MAPPER.writeValueAsString(root);
     }
 }

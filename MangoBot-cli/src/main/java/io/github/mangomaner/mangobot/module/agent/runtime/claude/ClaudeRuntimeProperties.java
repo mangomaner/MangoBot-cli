@@ -25,6 +25,10 @@ import java.util.List;
  *     turn-timeout-seconds: 120
  *     shutdown-grace-millis: 3000
  *     warmup: false           # 应用启动时预拉进程（默认懒启动，避免首次运行卡住开机）
+ *     max-images-per-turn: 3  # 一轮最多送几张入站图（0 表示只送文字描述）
+ *     group-debounce-millis: 1000
+ *     session-idle-minutes: 30
+ *     max-sessions: 16
  *     extra-args: []
  * </pre>
  */
@@ -53,6 +57,27 @@ public class ClaudeRuntimeProperties {
 
     /** 应用启动时是否预拉进程；默认懒启动，第一轮对话时才拉起 */
     private boolean warmup = false;
+
+    /**
+     * 一轮最多带几张入站图。
+     *
+     * <p>图片落在提示词缓存边界之外，每轮都是净增输入（实测一张 1.5KB 小图约 +250 token，
+     * 随尺寸变），所以这是唯一的成本闸门。取消息里最后 N 张，越近越相关。
+     */
+    private int maxImagesPerTurn = 3;
+
+    /**
+     * 群聊/私聊攒消息的防抖窗口（毫秒）：窗口内每来一条就把定时器重置，静默这么久才开一轮。
+     *
+     * <p>比"首条立刻开跑"更像真人（真人不会 300ms 内回话），也天然把连发的几条并成一批。
+     */
+    private long groupDebounceMillis = 1000;
+
+    /** 会话空闲多久后回收（分钟）；0 或负数表示不回收 */
+    private long sessionIdleMinutes = 30;
+
+    /** 常驻会话数上限，超出按最久未用淘汰；0 或负数表示不限 */
+    private int maxSessions = 16;
 
     /** 追加到命令行末尾的额外参数 */
     private List<String> extraArgs = new ArrayList<>();

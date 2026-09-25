@@ -120,6 +120,20 @@ public class MangoToolApi {
     }
 
     /**
+     * 注册<b>内置</b>工具：新建那一次直接启用（已存在的行保持原样，用户关掉就是关掉）。
+     *
+     * <p>给产品自身的行为用——插件注册该走 {@link #registerTool(Class)} 那套默认禁用的接口。
+     *
+     * @param toolClass        工具类（应带有 @MangoTool 注解）
+     * @param availableSources 支持的来源列表
+     * @return 工具配置 ID
+     */
+    public static Integer registerBuiltinTool(Class<?> toolClass, List<SessionSource> availableSources) {
+        checkService();
+        return toolRegistrationService.registerBuiltinTool(toolClass, availableSources);
+    }
+
+    /**
      * 注册工具类（带构造参数，支持所有来源）
      *
      * <p>参数会自动序列化为 JSON 存储到数据库。

@@ -64,6 +64,36 @@ public class ToolRegistrationService {
     }
 
     /**
+     * 注册<b>内置</b>工具：新建那一次直接启用，已存在的行不动 {@code enabled}。
+     *
+     * <p>区别只在 {@code enabled} 初值。走 {@link #registerTool} 的插件工具默认禁用、等用户去能力页打开，
+     * 那是对的——插件注册的东西不该自动生效。但内置工具是产品自身的行为（如 QQ 发送能力），
+     * 新装环境首次注册出来若是禁用的，bot 直接哑巴，且用户不知道要去打开哪个开关。
+     * 已存在的行保持原样，用户手动关掉就一直是关的。
+     *
+     * @param toolClass        工具类
+     * @param availableSources 支持的来源列表；内核里只有这些来源看得到它
+     * @return 工具配置 ID
+     */
+    public Integer registerBuiltinTool(Class<?> toolClass, List<SessionSource> availableSources) {
+        String className = toolClass.getName();
+        ToolMetadata metadata = extractMetadata(toolClass);
+
+        tryCreateAndCacheInstance(toolClass, null, className);
+
+        return persistToolConfig(
+                className,
+                metadata,
+                null,
+                JavaToolLoader.LOAD_TYPE_NO_ARGS,
+                null,
+                availableSources,
+                "Builtin tool",
+                true
+        );
+    }
+
+    /**
      * 注册工具类（指定插件，支持所有来源）
      *
      * @param toolClass 工具类
@@ -128,7 +158,8 @@ public class ToolRegistrationService {
                 JavaToolLoader.LOAD_TYPE_INSTANCE,
                 pluginId,
                 availableSources,
-                "Tool instance"
+                "Tool instance",
+                false
         );
     }
 
@@ -171,7 +202,8 @@ public class ToolRegistrationService {
                 JavaToolLoader.LOAD_TYPE_FACTORY,
                 pluginId,
                 availableSources,
-                "Tool factory"
+                "Tool factory",
+                false
         );
     }
 
@@ -219,7 +251,8 @@ public class ToolRegistrationService {
                 loadType,
                 pluginId,
                 availableSources,
-                "Tool"
+                "Tool",
+                false
         );
     }
 
@@ -246,7 +279,8 @@ public class ToolRegistrationService {
             String loadType,
             Integer pluginId,
             List<SessionSource> availableSources,
-            String logPrefix) {
+            String logPrefix,
+            boolean enabledOnCreate) {
 
         String availableListJson = buildAvailableListJson(availableSources);
         AgentJavaToolConfig existingConfig = toolConfigService.getByClassName(className);
@@ -254,7 +288,7 @@ public class ToolRegistrationService {
         if (existingConfig != null) {
             return updateExistingConfig(existingConfig, metadata, constructorArgs, loadType, pluginId, availableListJson, logPrefix);
         } else {
-            return createNewConfig(className, metadata, constructorArgs, loadType, pluginId, availableListJson, logPrefix);
+            return createNewConfig(className, metadata, constructorArgs, loadType, pluginId, availableListJson, logPrefix, enabledOnCreate);
         }
     }
 
@@ -297,7 +331,8 @@ public class ToolRegistrationService {
             String loadType,
             Integer pluginId,
             String availableListJson,
-            String logPrefix) {
+            String logPrefix,
+            boolean enabledOnCreate) {
 
         AgentJavaToolConfig config = new AgentJavaToolConfig();
         config.setClassName(className);
@@ -307,13 +342,13 @@ public class ToolRegistrationService {
         config.setCategory(metadata.category());
         config.setLoadType(loadType);
         config.setPluginId(pluginId);
-        config.setEnabled(false);
+        config.setEnabled(enabledOnCreate);
         config.setAvailableList(availableListJson);
         config.setEnabledList(availableListJson);
 
         toolConfigService.save(config);
-        log.info("{} registered: {} (disabled by default, sources={})",
-                logPrefix, className, availableListJson);
+        log.info("{} registered: {} (enabled={}, sources={})",
+                logPrefix, className, enabledOnCreate, availableListJson);
 
         return config.getId();
     }
