@@ -3,6 +3,7 @@ package io.github.mangomaner.mangobot.api;
 import io.agentscope.extensions.model.openai.OpenAIChatModel;
 import io.github.mangomaner.mangobot.api.enums.ModelRole;
 import io.github.mangomaner.mangobot.module.configuration.core.ModelProvider;
+import io.github.mangomaner.mangobot.module.configuration.model.domain.ModelEndpoint;
 import io.github.mangomaner.mangobot.module.configuration.model.vo.ModelConfigVO;
 import io.github.mangomaner.mangobot.module.configuration.model.vo.ModelRoleVO;
 
@@ -66,6 +67,21 @@ public class MangoModelApi {
     public static ModelConfigVO getModelConfig(String roleKey) {
         checkProvider();
         return provider.getModelConfig(roleKey);
+    }
+
+    /**
+     * 解析指定角色的端点凭据（地址 / 密钥 / 模型名 / 供应商名）。
+     *
+     * <p>给拿不到 {@link OpenAIChatModel} 实例、只能自己拉起进程并注入环境变量的运行时用
+     * （Claude Code 子进程要的是 {@code ANTHROPIC_BASE_URL} 这类环境变量，不是模型对象；
+     * 而 {@link OpenAIChatModel} 只暴露 {@code getModelName()}，读不出地址与密钥）。
+     *
+     * @param role 模型角色枚举
+     * @return 永不为 {@code null}；解析失败时 {@link ModelEndpoint#ok()} 为 false
+     */
+    public static ModelEndpoint resolveEndpoint(ModelRole role) {
+        checkProvider();
+        return provider.resolveEndpoint(role.getRoleKey());
     }
 
     /**
