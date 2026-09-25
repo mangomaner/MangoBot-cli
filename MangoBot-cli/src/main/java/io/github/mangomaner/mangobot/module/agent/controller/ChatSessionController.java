@@ -1,15 +1,11 @@
 package io.github.mangomaner.mangobot.module.agent.controller;
 
-import io.github.mangomaner.mangobot.module.agent.chat.ChatOrchestrator;
 import io.github.mangomaner.mangobot.module.agent.model.dto.CreateChatSessionRequest;
 import io.github.mangomaner.mangobot.module.agent.model.dto.UpdateChatSessionRequest;
-import io.github.mangomaner.mangobot.module.agent.model.enums.SessionSource;
 import io.github.mangomaner.mangobot.module.agent.model.vo.ChatSessionVO;
 import io.github.mangomaner.mangobot.module.agent.service.ChatSessionService;
 import io.github.mangomaner.mangobot.system.common.BaseResponse;
-import io.github.mangomaner.mangobot.system.common.ErrorCode;
 import io.github.mangomaner.mangobot.system.common.ResultUtils;
-import io.github.mangomaner.mangobot.system.exception.BusinessException;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import jakarta.validation.Valid;
@@ -39,7 +35,6 @@ import java.util.List;
 public class ChatSessionController {
 
     private final ChatSessionService chatSessionService;
-    private final ChatOrchestrator chatOrchestrator;
 
     /**
      * 创建对话会话
@@ -98,26 +93,6 @@ public class ChatSessionController {
             @Parameter(description = "会话ID", required = true) @PathVariable Integer id) {
         log.info("删除会话，sessionId: {}", id);
         chatSessionService.deleteSession(id);
-        return ResultUtils.success(null);
-    }
-
-    /**
-     * 清空指定会话中 bot 的对话记忆（AgentState），下一轮回复从空白上下文开始。
-     */
-    @PostMapping("/clear-context")
-    @Operation(summary = "清空会话上下文", description = "清除指定会话中 bot 的对话记忆，下一轮回复从空白上下文开始")
-    public BaseResponse<Void> clearContext(
-            @Parameter(description = "Bot ID", required = true) @RequestParam String botId,
-            @Parameter(description = "会话来源(group/private)", required = true) @RequestParam String source,
-            @Parameter(description = "聊天ID(群ID/好友QQ)", required = true) @RequestParam String chatId) {
-        log.info("清空会话上下文，botId: {}, source: {}, chatId: {}", botId, source, chatId);
-        SessionSource src;
-        try {
-            src = SessionSource.fromKey(source);
-        } catch (IllegalArgumentException e) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "非法来源: " + source);
-        }
-        chatOrchestrator.clearSessionContext(botId, src, chatId);
         return ResultUtils.success(null);
     }
 }

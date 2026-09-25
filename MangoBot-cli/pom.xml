@@ -74,31 +74,27 @@
             <artifactId>caffeine</artifactId>
         </dependency>
 
-        <dependency>
-            <groupId>io.agentscope</groupId>
-            <artifactId>agentscope</artifactId>
-            <version>2.0.0</version>
-        </dependency>
-
-        <!-- AgentScope Harness（工作区/记忆/会话日志等工程能力） -->
-        <dependency>
-            <groupId>io.agentscope</groupId>
-            <artifactId>agentscope-harness</artifactId>
-            <version>2.0.0</version>
-        </dependency>
-
-        <!-- AgentScope OpenAI 模型扩展（v2 中模型实现迁出 core） -->
-        <dependency>
-            <groupId>io.agentscope</groupId>
-            <artifactId>agentscope-extensions-model-openai</artifactId>
-            <version>2.0.0</version>
-        </dependency>
-
-        <!-- 显式钉到 agentscope 2.0.0 期望的 reactor 版本（Spring Boot 3.3 默认管理 3.6.x，会降级） -->
+        <!-- Claude 运行时用 Flux 做流式（ClaudeSession / ClaudeSmokeController），MCP server 内部也用它。
+             Spring MVC 不传递 reactor，所以必须显式声明。
+             版本不能交给 spring-boot-starter-parent：它管到 3.6.x，而 mcp-core 0.17.0 是按 3.7.0 编译的，
+             跑在 3.6.x 上会 NoSuchMethodError。除本项目的 Flux 用法外没有别的 reactor 消费者，钉住无副作用。 -->
         <dependency>
             <groupId>io.projectreactor</groupId>
             <artifactId>reactor-core</artifactId>
-            <version>3.8.2</version>
+            <version>3.7.12</version>
+        </dependency>
+
+        <!-- MCP server 侧（Java 工具暴露给 claude 调）：本项目是 Spring MVC，用随 core 附带的
+             jakarta-servlet transport 挂到自己的 servlet 容器上，不引 webmvc/webflux 专用模块。 -->
+        <dependency>
+            <groupId>io.modelcontextprotocol.sdk</groupId>
+            <artifactId>mcp-core</artifactId>
+            <version>0.17.0</version>
+        </dependency>
+        <dependency>
+            <groupId>io.modelcontextprotocol.sdk</groupId>
+            <artifactId>mcp-json-jackson2</artifactId>
+            <version>0.17.0</version>
         </dependency>
 
         <!-- Java-WebSocket for standalone WebSocket server -->

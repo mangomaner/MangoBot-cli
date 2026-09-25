@@ -1,12 +1,9 @@
 package io.github.mangomaner.mangobot.module.agent.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.agentscope.core.tool.mcp.McpClientWrapper;
-import io.github.mangomaner.mangobot.module.agent.capability.mcp.McpConnectionManager;
-import io.github.mangomaner.mangobot.module.agent.capability.mcp.McpToolSynchronizer;
 import io.github.mangomaner.mangobot.module.agent.capability.skill.SkillManager;
 import io.github.mangomaner.mangobot.module.agent.capability.tool.JavaToolLoader;
-import io.github.mangomaner.mangobot.module.agent.core.AgentRuntimeRegistry;
+import io.github.mangomaner.mangobot.module.agent.capability.tool.JavaToolMcpServer;
 import io.github.mangomaner.mangobot.module.agent.model.domain.AgentJavaToolConfig;
 import io.github.mangomaner.mangobot.module.agent.model.domain.AgentMcpConfig;
 import io.github.mangomaner.mangobot.module.agent.model.domain.AgentMcpToolConfig;
@@ -44,13 +41,15 @@ import java.util.stream.Collectors;
 
 /**
  * Agent 能力管理控制器
- * 
+ *
  * <p>提供以下能力的管理接口：
  * <ul>
  *   <li>Java 工具 - 注册、启用/禁用、注销</li>
- *   <li>MCP 连接 - 创建、连接、断开、删除</li>
+ *   <li>MCP 连接 - 创建、启用/禁用、删除</li>
  *   <li>Skill - 创建、编辑、启用/禁用、删除</li>
  * </ul>
+ *
+ * <p>这里只管配置的持久化：三样能力都是 spawn claude 子进程时才读取的参数，本层不做任何连接或加载。
  */
 @Slf4j
 @RestController
@@ -63,13 +62,11 @@ public class AgentCapabilityController {
     private final AgentMcpConfigService mcpConfigService;
     private final AgentMcpToolConfigService mcpToolConfigService;
     private final AgentSkillConfigService skillConfigService;
-    
+
     private final JavaToolLoader javaToolLoader;
-    private final McpToolSynchronizer mcpSynchronizer;
-    private final McpConnectionManager mcpConnectionManager;
+    private final JavaToolMcpServer javaToolMcpServer;
     private final SkillManager skillManager;
-    private final AgentRuntimeRegistry agentRuntimeRegistry;
-    
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     // ==================== Java 工具 ====================
@@ -93,7 +90,8 @@ public class AgentCapabilityController {
         boolean newEnabled = !Boolean.TRUE.equals(config.getEnabled());
         config.setEnabled(newEnabled);
         javaToolConfigService.updateById(config);
-        agentRuntimeRegistry.reloadAll();
+        // 立即重挂 MCP tool；已跑着的 claude 会话仍用连接时的工具快照，下次 spawn 才看得到
+        javaToolMcpServer.reload();
         return new BaseResponse<>(0, newEnabled, "");
     }
 
@@ -105,7 +103,7 @@ public class AgentCapabilityController {
             return new BaseResponse<>(ErrorCode.NOT_FOUND_ERROR);
         }
         javaToolConfigService.removeById(id);
-        agentRuntimeRegistry.reloadAll();
+        javaToolMcpServer.reload();
         return new BaseResponse<>(0, true, "");
     }
 
@@ -156,41 +154,15 @@ public class AgentCapabilityController {
         if (config == null) {
             return new BaseResponse<>(ErrorCode.NOT_FOUND_ERROR);
         }
-        
         boolean newEnabled = !Boolean.TRUE.equals(config.getEnabled());
-        
-        if (newEnabled) {
-            try {
-                McpClientWrapper client = mcpSynchronizer.connectAndSync(config);
-                if (client != null) {
-                    mcpConnectionManager.registerClient(config.getId(), client);
-                    config.setEnabled(true);
-                    config.setConnectionStatus(1);
-                    mcpConfigService.updateById(config);
-                    agentRuntimeRegistry.reloadAll();
-                }
-            } catch (Exception e) {
-                log.error("Failed to connect MCP: {}", config.getMcpName(), e);
-                config.setConnectionStatus(0);
-                mcpConfigService.updateById(config);
-                return new BaseResponse<>(ErrorCode.OPERATION_ERROR.getCode(), null, "连接失败: " + e.getMessage());
-            }
-        } else {
-            mcpSynchronizer.disconnectAndCleanup(id);
-            mcpConnectionManager.unregisterClient(id);
-            config.setEnabled(false);
-            config.setConnectionStatus(0);
-            mcpConfigService.updateById(config);
-            agentRuntimeRegistry.reloadAll();
-        }
-        
+        config.setEnabled(newEnabled);
+        mcpConfigService.updateById(config);
         return new BaseResponse<>(0, newEnabled, "");
     }
 
     @DeleteMapping("/mcp/{id}")
     @Operation(summary = "删除 MCP 连接")
     public BaseResponse<Boolean> deleteMcp(@PathVariable Integer id) {
-        mcpSynchronizer.disconnectAndCleanup(id);
         mcpConfigService.removeById(id);
         return new BaseResponse<>(0, true, "");
     }
@@ -257,7 +229,6 @@ public class AgentCapabilityController {
         boolean newEnabled = !Boolean.TRUE.equals(config.getEnabled());
         config.setEnabled(newEnabled);
         mcpToolConfigService.updateById(config);
-        agentRuntimeRegistry.reloadAll();
         return new BaseResponse<>(0, newEnabled, "");
     }
 
@@ -283,7 +254,7 @@ public class AgentCapabilityController {
     @Operation(summary = "获取 Skill 列表")
     public BaseResponse<List<SkillVO>> listSkills() {
         List<SkillVO> result = skillConfigService.list().stream()
-            .map(config -> SkillVO.from(config, skillManager))
+            .map(SkillVO::from)
             .collect(Collectors.toList());
         return new BaseResponse<>(0, result, "");
     }
@@ -311,7 +282,6 @@ public class AgentCapabilityController {
         }
         config.setEnabled(false);
         skillConfigService.save(config);
-        agentRuntimeRegistry.reloadAll();
         
         return new BaseResponse<>(0, config, "");
     }
@@ -334,7 +304,6 @@ public class AgentCapabilityController {
         if (request.getSkillContent() != null) {
             skillManager.writeSkillContent(config.getSkillPath(), request.getSkillContent());
         }
-        agentRuntimeRegistry.reloadAll();
         
         return new BaseResponse<>(0, true, "");
     }
@@ -349,7 +318,6 @@ public class AgentCapabilityController {
         boolean newEnabled = !Boolean.TRUE.equals(config.getEnabled());
         config.setEnabled(newEnabled);
         skillConfigService.updateById(config);
-        agentRuntimeRegistry.reloadAll();
         return new BaseResponse<>(0, newEnabled, "");
     }
 
@@ -378,7 +346,6 @@ public class AgentCapabilityController {
         }
         skillManager.deleteSkillDirectory(config.getSkillPath());
         skillConfigService.removeById(id);
-        agentRuntimeRegistry.reloadAll();
         return new BaseResponse<>(0, true, "");
     }
 
@@ -400,7 +367,6 @@ public class AgentCapabilityController {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "请上传 ZIP 文件");
         }
         AgentSkillConfig config = skillManager.importFromZip(file.getInputStream());
-        agentRuntimeRegistry.reloadAll();
         return new BaseResponse<>(0, config, "");
     }
 
@@ -410,7 +376,6 @@ public class AgentCapabilityController {
             @RequestBody @Valid ImportSkillRequest request) throws IOException {
         AgentSkillConfig config = skillManager.importFromMarkdown(
                 request.getSkillName(), request.getDescription(), request.getContent());
-        agentRuntimeRegistry.reloadAll();
         return new BaseResponse<>(0, config, "");
     }
 

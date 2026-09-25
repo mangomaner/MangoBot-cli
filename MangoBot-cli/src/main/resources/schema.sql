@@ -167,9 +167,7 @@ INSERT INTO bot_configs (bot_id, config_key, config_value, config_type, metadata
     (NULL, 'private.enable_list', 'true', 'BOOLEAN', NULL, '启用私聊黑白名单', '', 'BW_list', 1),
     (NULL, 'group.record_list', '[]', 'GROUP_LIST_SELECTOR', '{"listType":"group"}', '群聊消息记录名单', '名单内的群聊始终记录消息', 'message_record', 1),
     (NULL, 'private.record_list', '[]', 'PRIVATE_LIST_SELECTOR', '{"listType":"private"}', '私聊消息记录名单', '名单内的私聊始终记录消息', 'message_record', 1),
-    (NULL, 'bot.markdown_to_txt', 'true', 'BOOLEAN', NULL, '将md格式转为纯文本发送', '', 'format', 1),
-    (NULL, 'bot.type', 'human', 'SELECT', '{"options":[{"label":"模仿人类","value":"human"},{"label":"角色扮演","value":"roleplay"},{"label":"指令遵循","value":"instruction"}]}', 'Bot 类型', '决定 bot 使用哪套默认人格/行为模板：模仿人类=群友混入感；角色扮演=按角色卡饰演；指令遵循=听指令执行的助手。', 'prompt', 1),
-    (NULL, 'prompt.editor', '/prompt/edit', 'LINK', NULL, '系统提示词编辑入口', '进入统一的三层提示词编辑页（框架规范 / 人格与行为 / 风格数据集）, 'prompt', 0);
+    (NULL, 'bot.markdown_to_txt', 'true', 'BOOLEAN', NULL, '将md格式转为纯文本发送', '', 'format', 1);
 -- 上述列表示例：["123456789","1011121314"]，true为白名单，false为黑名单
 
 -- 系统配置初始数据（全局配置，无 bot_id）
@@ -427,55 +425,3 @@ CREATE TABLE agent_skill_config (
     update_time DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- ============================================
--- 5. 系统提示词三层规范（prompt_norm）
--- ============================================
--- 继承链：SESSION 行 → BOT 行 → GLOBAL 行 → resource 出厂模板（无行即兜底模板，无需播种）
-CREATE TABLE IF NOT EXISTS prompt_norm (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    scope       TEXT NOT NULL,                       -- GLOBAL / BOT / SESSION
-    bot_id      TEXT,                                -- 非 GLOBAL 时必填（String 兼容多平台）
-    source      TEXT NOT NULL,                       -- group / private / web
-    chat_id     TEXT,                                -- 仅 SESSION 时必填
-    layer       TEXT NOT NULL,                       -- framework / persona / behavior
-    content     TEXT,                                -- Markdown 内容
-    enabled     INTEGER DEFAULT 1,                   -- 是否启用
-    created_at  INTEGER DEFAULT (strftime('%s', 'now') * 1000),
-    updated_at  INTEGER DEFAULT (strftime('%s', 'now') * 1000)
-);
-CREATE INDEX IF NOT EXISTS idx_prompt_norm_lookup ON prompt_norm (scope, source, bot_id, chat_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_prompt_norm_unique ON prompt_norm (scope, source, bot_id, chat_id, layer);
-
--- ============================================
--- 6. 风格数据集（公共数据中心，roles/messages 内嵌 JSON）
--- ============================================
-CREATE TABLE IF NOT EXISTS style_dataset (
-    id                INTEGER PRIMARY KEY AUTOINCREMENT,
-    name              TEXT NOT NULL,
-    description       TEXT,
-    source            TEXT NOT NULL,                 -- group / private（仅这两端支持风格注入）
-    create_type       TEXT NOT NULL DEFAULT 'created',  -- created / imported
-    dataset_type      TEXT NOT NULL DEFAULT 'chatlog',  -- chatlog（模仿人类的对话剧本）/ character（角色台词）
-    source_session_id INTEGER,                       -- 导入时记录来源会话 id
-    roles             TEXT,                          -- JSON 数组: [{"name":"群友A"},...]
-    messages          TEXT,                          -- JSON 数组: [{"roleName":"群友A","text":"..."},...]
-    created_at        INTEGER DEFAULT (strftime('%s', 'now') * 1000),
-    updated_at        INTEGER DEFAULT (strftime('%s', 'now') * 1000)
-);
-CREATE INDEX IF NOT EXISTS idx_style_dataset_source ON style_dataset (source);
-
--- ============================================
--- 7. 风格数据集注入关联（作用域 -> 数据集，一作用域可注入多个）
--- ============================================
-CREATE TABLE IF NOT EXISTS style_injection (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    scope       TEXT NOT NULL,                       -- GLOBAL / BOT / SESSION
-    source      TEXT NOT NULL,                       -- group / private
-    bot_id      TEXT,                                -- 非 GLOBAL 时必填
-    chat_id     TEXT,                                -- 仅 SESSION 时必填
-    dataset_id  INTEGER NOT NULL,                    -- 指向 style_dataset.id
-    created_at  INTEGER DEFAULT (strftime('%s', 'now') * 1000),
-    updated_at  INTEGER DEFAULT (strftime('%s', 'now') * 1000),
-    UNIQUE(scope, source, bot_id, chat_id, dataset_id)
-);
-CREATE INDEX IF NOT EXISTS idx_style_injection_dataset ON style_injection (dataset_id);

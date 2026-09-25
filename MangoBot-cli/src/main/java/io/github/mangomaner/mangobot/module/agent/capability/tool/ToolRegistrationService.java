@@ -2,16 +2,9 @@ package io.github.mangomaner.mangobot.module.agent.capability.tool;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.agentscope.core.tool.coding.ShellCommandTool;
-import io.agentscope.core.tool.file.ReadFileTool;
-import io.agentscope.core.tool.file.WriteFileTool;
 import io.github.mangomaner.mangobot.module.agent.model.domain.AgentJavaToolConfig;
 import io.github.mangomaner.mangobot.module.agent.model.enums.SessionSource;
 import io.github.mangomaner.mangobot.module.agent.service.AgentJavaToolConfigService;
-import io.github.mangomaner.mangobot.module.agent.tools.CalculatorTool;
-import io.github.mangomaner.mangobot.module.agent.tools.DateTimeTool;
-import io.github.mangomaner.mangobot.message_handler.response.tools.GroupMessageSendTool;
-import io.github.mangomaner.mangobot.message_handler.response.tools.PrivateMessageSendTool;
 import io.github.mangomaner.mangobot.annotation.MangoTool;
 import io.github.mangomaner.mangobot.api.MangoToolApi;
 import lombok.RequiredArgsConstructor;
@@ -20,7 +13,6 @@ import org.springframework.stereotype.Service;
 
 import java.util.Arrays;
 import java.util.List;
-import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -52,14 +44,6 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class ToolRegistrationService {
 
-    // ==================== 常量 ====================
-
-    /** Shell 命令白名单 */
-    private static final Set<String> ALLOWED_SHELL_COMMANDS = Set.of(
-        "ls", "dir", "cat", "head", "tail", "grep", "find", "pwd",
-        "echo", "mkdir", "rm", "cp", "mv", "touch", "chmod"
-    );
-
     // ==================== 依赖 ====================
 
     private final AgentJavaToolConfigService toolConfigService;
@@ -67,23 +51,6 @@ public class ToolRegistrationService {
     private final ObjectMapper objectMapper;
 
     // ==================== 公共 API ====================
-
-    /**
-     * 初始化内置工具
-     * <p>
-     * 在应用启动时自动调用，注册所有系统内置工具。
-     */
-    public void initBuiltInTools() {
-        registerBuiltInTool(DateTimeTool.class, "日期时间工具");
-        registerBuiltInTool(CalculatorTool.class, "计算器工具");
-        registerBuiltInTool(ReadFileTool.class, "文件读取工具");
-        registerBuiltInTool(WriteFileTool.class, "文件写入工具");
-        registerBuiltInToolFactory(ShellCommandTool.class, "Shell 命令工具");
-        registerBuiltInTool(GroupMessageSendTool.class, "群聊回复工具", List.of(SessionSource.GROUP));
-        registerBuiltInTool(PrivateMessageSendTool.class, "私聊回复工具", List.of(SessionSource.PRIVATE));
-
-        log.info("Built-in tools registered via MangoToolApi");
-    }
 
     /**
      * 注册工具类（支持所有来源）
@@ -404,7 +371,7 @@ public class ToolRegistrationService {
         // 无注解时使用默认命名
         String simpleName = toolClass.getSimpleName();
         String name = simpleName.replace("Tool", "");
-        return new ToolMetadata(name, "AgentScope built-in tool", "SYSTEM");
+        return new ToolMetadata(name, "未标注描述的 Java 工具", "SYSTEM");
     }
 
     /**
@@ -419,24 +386,6 @@ public class ToolRegistrationService {
         } catch (JsonProcessingException e) {
             throw new IllegalArgumentException("参数无法序列化: " + e.getMessage(), e);
         }
-    }
-
-    // ==================== 内置工具注册辅助方法 ====================
-
-    private void registerBuiltInTool(Class<?> toolClass, String description) {
-        MangoToolApi.registerTool(toolClass);
-        log.debug("Registered built-in tool: {} - {}", toolClass.getSimpleName(), description);
-    }
-
-    private void registerBuiltInTool(Class<?> toolClass, String description, List<SessionSource> availableSources) {
-        MangoToolApi.registerTool(toolClass, availableSources);
-        log.debug("Registered built-in tool: {} - {}", toolClass.getSimpleName(), description);
-    }
-
-    private void registerBuiltInToolFactory(Class<?> toolClass, String description) {
-        MangoToolApi.registerToolFactory(toolClass,
-                () -> new ShellCommandTool(ALLOWED_SHELL_COMMANDS, cmd -> true));
-        log.debug("Registered built-in tool factory: {} - {}", toolClass.getSimpleName(), description);
     }
 
     // ==================== 实例创建辅助方法 ====================

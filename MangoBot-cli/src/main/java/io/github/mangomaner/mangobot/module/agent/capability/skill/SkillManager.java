@@ -2,7 +2,6 @@ package io.github.mangomaner.mangobot.module.agent.capability.skill;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.agentscope.core.skill.AgentSkill;
 import io.github.mangomaner.mangobot.module.agent.model.domain.AgentSkillConfig;
 import io.github.mangomaner.mangobot.module.agent.model.enums.SessionSource;
 import io.github.mangomaner.mangobot.module.agent.service.AgentSkillConfigService;
@@ -26,28 +25,30 @@ import java.util.stream.Collectors;
 /**
  * Skill 管理器
  * 
- * <p>负责管理 Agent Skill 的生命周期：
+ * <p>负责管理 Skill 的生命周期：
  * <ul>
  *   <li>{@link #init()} - 启动时扫描并同步 Skill 目录</li>
- *   <li>{@link #loadSkill(AgentSkillConfig)} - 加载 Skill 到 Agent</li>
  *   <li>{@link #createSkillDirectory(String)} - 创建 Skill 目录</li>
  *   <li>{@link #writeSkillContent(String, String)} - 写入 Skill 内容</li>
  *   <li>{@link #deleteSkillDirectory(String)} - 删除 Skill 目录</li>
  * </ul>
- * 
+ *
  * <h3>Skill 目录结构</h3>
+ * <p>目录本身就是交给 claude 的插件目录（{@code --plugin-dir}），技能必须落在它下面的
+ * {@code skills/} 子目录里才会被识别——实测直接把技能目录挂在插件目录根下，claude 一个技能都发现不了。
  * <pre>
- * data/skills/
- * └── my-skill/
- *     ├── SKILL.md           # Skill 主文件（必须）
- *     ├── references/        # 参考文档（可选）
- *     │   └── doc.md
- *     ├── examples/          # 示例文件（可选）
- *     │   └── example.md
- *     └── scripts/           # 脚本文件（可选）
- *         └── helper.sh
+ * data/capabilities/skills/          # 插件目录（--plugin-dir 指向这里）
+ * └── skills/
+ *     └── my-skill/
+ *         ├── SKILL.md           # Skill 主文件（必须）
+ *         ├── references/        # 参考文档（可选）
+ *         │   └── doc.md
+ *         ├── examples/          # 示例文件（可选）
+ *         │   └── example.md
+ *         └── scripts/           # 脚本文件（可选）
+ *             └── helper.sh
  * </pre>
- * 
+ *
  * <h3>SKILL.md 格式</h3>
  * <pre>
  * ---
@@ -59,7 +60,6 @@ import java.util.stream.Collectors;
  * Skill content here...
  * </pre>
  * 
- * @see AgentSkill
  * @see AgentSkillConfig
  */
 @Service
@@ -67,15 +67,27 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class SkillManager {
 
-    /** Skill 存储目录 */
-    private static final String SKILLS_DIR = "data/capabilities/skills";
-    
+    /** 插件目录：claude 的 {@code --plugin-dir} 指向这里 */
+    private static final String PLUGIN_DIR = "data/capabilities/skills";
+
+    /** 技能内容目录：插件目录下的 skills/ 子目录，每个技能一格 */
+    private static final String SKILLS_DIR = PLUGIN_DIR + "/skills";
+
     private final AgentSkillConfigService skillConfigService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     /**
+     * 获取插件目录路径（claude {@code --plugin-dir} 的值）
+     *
+     * @return 插件目录路径
+     */
+    public Path getPluginDirectory() {
+        return FileUtils.resolvePath(PLUGIN_DIR);
+    }
+
+    /**
      * 获取 Skill 存储目录路径
-     * 
+     *
      * @return Skill 目录路径
      */
     public Path getSkillsDirectory() {
@@ -93,9 +105,10 @@ public class SkillManager {
      * </ul>
      */
     public void init() {
+        FileUtils.createDirectory(getPluginDirectory());
         Path skillsDir = getSkillsDirectory();
         FileUtils.createDirectory(skillsDir);
-        
+
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(skillsDir)) {
             for (Path skillPath : stream) {
                 if (Files.isDirectory(skillPath)) {
@@ -142,47 +155,6 @@ public class SkillManager {
             
         } catch (IOException e) {
             log.error("Failed to read skill file: {}", skillMdPath, e);
-        }
-    }
-
-    /**
-     * 加载 Skill
-     * 
-     * <p>从文件系统加载 Skill 内容，包括：
-     * <ul>
-     *   <li>SKILL.md 主文件内容</li>
-     *   <li>references/ 目录下的参考文档</li>
-     *   <li>examples/ 目录下的示例文件</li>
-     *   <li>scripts/ 目录下的脚本文件</li>
-     * </ul>
-     * 
-     * @param config Skill 配置
-     * @return AgentSkill 实例（加载失败返回 empty）
-     */
-    public Optional<AgentSkill> loadSkill(AgentSkillConfig config) {
-        Path skillDir = getSkillsDirectory().resolve(config.getSkillPath());
-        Path skillMdPath = skillDir.resolve("SKILL.md");
-        
-        if (!Files.exists(skillMdPath)) {
-            log.warn("Skill file not found: {}", skillMdPath);
-            return Optional.empty();
-        }
-        
-        try {
-            String content = Files.readString(skillMdPath);
-            Map<String, String> resources = loadResources(skillDir);
-            
-            AgentSkill skill = AgentSkill.builder()
-                .name(config.getSkillName())
-                .description(config.getDescription())
-                .skillContent(content)
-                .resources(resources)
-                .build();
-            
-            return Optional.of(skill);
-        } catch (IOException e) {
-            log.error("Failed to load skill: {}", config.getSkillPath(), e);
-            return Optional.empty();
         }
     }
 
@@ -330,29 +302,6 @@ public class SkillManager {
         skillConfigService.saveOrUpdate(config);
         log.info("Skill synced: {}", skillPathName);
         return config;
-    }
-
-    /**
-     * 加载 Skill 资源文件
-     */
-    private Map<String, String> loadResources(Path skillDir) throws IOException {
-        Map<String, String> resources = new HashMap<>();
-        String[] resourceDirs = {"references", "examples", "scripts"};
-        
-        for (String dirName : resourceDirs) {
-            Path dir = skillDir.resolve(dirName);
-            if (Files.exists(dir)) {
-                try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
-                    for (Path file : stream) {
-                        if (Files.isRegularFile(file)) {
-                            String relativePath = dirName + "/" + file.getFileName();
-                            resources.put(relativePath, Files.readString(file));
-                        }
-                    }
-                }
-            }
-        }
-        return resources;
     }
 
     /**

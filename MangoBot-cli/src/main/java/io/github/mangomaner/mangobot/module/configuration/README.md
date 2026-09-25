@@ -342,41 +342,27 @@ public boolean onModelRoleChanged(ModelRoleChangedEvent event) {
 | image | 图片模型 | 用于图片理解任务 |
 | embedding | 向量模型 | 用于文本向量化 |
 
-### 获取模型实例
+### 获取模型配置
 
-通过 `MangoModelApi` 静态工具类获取模型实例：
+通过 `MangoModelApi` 静态工具类解析模型角色的完整配置元信息（凭据 + 生成参数）：
 
 ```java
 import io.github.mangomaner.mangobot.api.MangoModelApi;
-import io.agentscope.core.model.OpenAIChatModel;
+import io.github.mangomaner.mangobot.api.enums.ModelRole;
+import io.github.mangomaner.mangobot.module.configuration.model.domain.ModelEndpoint;
 
 public void example() {
-    // 获取主模型
-    OpenAIChatModel mainModel = MangoModelApi.getMainModel();
-    
-    // 获取助手模型
-    OpenAIChatModel assistantModel = MangoModelApi.getAssistantModel();
-    
-    // 获取图片模型
-    OpenAIChatModel imageModel = MangoModelApi.getImageModel();
-    
-    // 获取向量模型
-    OpenAIChatModel embeddingModel = MangoModelApi.getEmbeddingModel();
-    
-    // 通过角色标识获取模型
-    OpenAIChatModel model = MangoModelApi.getModel("main");
-    
+    // 解析主模型的端点凭据与生成参数
+    ModelEndpoint main = MangoModelApi.resolveEndpoint(ModelRole.MAIN);
+
+    // 解析图片模型（用于直接发 HTTP 请求的场景）
+    ModelEndpoint image = MangoModelApi.resolveEndpoint(ModelRole.IMAGE);
+
     // 获取模型配置信息
     ModelConfigVO config = MangoModelApi.getModelConfig("main");
-    
+
     // 获取所有角色
     List<ModelRoleVO> roles = MangoModelApi.getAllRoles();
-    
-    // 更新角色对应的模型
-    MangoModelApi.updateRoleModel("main", 1L);
-    
-    // 刷新模型（重新加载）
-    MangoModelApi.refreshModel("main");
 }
 ```
 
@@ -384,16 +370,10 @@ public void example() {
 
 | 方法 | 说明 |
 |------|------|
-| `getMainModel()` | 获取主模型实例 |
-| `getAssistantModel()` | 获取助手模型实例 |
-| `getImageModel()` | 获取图片模型实例 |
-| `getEmbeddingModel()` | 获取向量模型实例 |
-| `getModel(roleKey)` | 获取指定角色的模型实例 |
+| `resolveEndpoint(role)` | 解析指定角色的完整配置元信息（地址 / 密钥 / 模型名 / 供应商名 / 生成参数） |
 | `getModelConfig(roleKey)` | 获取指定角色的模型配置详情 |
-| `refreshModel(roleKey)` | 刷新指定角色的模型 |
 | `getAllRoles()` | 获取所有角色配置 |
 | `getRole(roleKey)` | 获取指定角色的配置 |
-| `updateRoleModel(roleKey, modelConfigId)` | 更新角色对应的模型 |
 
 ### 模型角色变更
 

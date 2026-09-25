@@ -1,11 +1,7 @@
 package io.github.mangomaner.mangobot.module.configuration.core;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import io.agentscope.extensions.model.openai.OpenAIChatModel;
-import io.github.mangomaner.mangobot.annotation.messageHandler.MangoBotEventListener;
-import io.github.mangomaner.mangobot.system.common.ErrorCode;
 import io.github.mangomaner.mangobot.events.configuration.ModelRoleChangedEvent;
-import io.github.mangomaner.mangobot.system.exception.BusinessException;
 import io.github.mangomaner.mangobot.system.mapper.configuration.ModelConfigMapper;
 import io.github.mangomaner.mangobot.system.mapper.configuration.ModelRoleMapper;
 import io.github.mangomaner.mangobot.module.configuration.model.domain.ModelConfig;
@@ -21,26 +17,18 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
  * 模型提供者实现
- * 统一管理模型实例，支持角色与模型的动态映射
- * 实现 ModelProvider 接口，对外提供模型实例
+ * 统一管理角色到模型配置的映射，对外提供模型的完整配置元信息。
  *
- * 1. 当模型角色与模型配置的映射关系发生变更时，会发布 ModelRoleChangedEvent 事件
- * 2. 当某个角色对应的模型发生变化时，会发布 ModelRoleChangedEvent 事件
- * 3. 当某个角色在使用某模型时，该模型不能被删除
+ * <p>当角色与模型配置的映射关系发生变更时，会发布 {@link ModelRoleChangedEvent} 事件，
+ * 由需要重建模型连接的运行时（Claude 会话）监听。
  */
 @Service
 @Slf4j
-@MangoBotEventListener
 public class ModelProvider {
-
-    // 注意，OpenAIChatModel一个实例可以同时有多份连接，因此对于每种角色，只需创建一个实例即可
-    private final Map<String, OpenAIChatModel> modelCache = new ConcurrentHashMap<>();
 
     @Resource
     private ModelRoleMapper modelRoleMapper;
@@ -54,57 +42,6 @@ public class ModelProvider {
     @Resource
     @Lazy
     private MangoEventPublisher mangoEventPublisher;
-
-    /**
-     * 初始化模型提供者
-     * 加载所有已配置的模型角色
-     */
-    public void init() {
-        log.info("初始化模型提供者...");
-        List<ModelRole> roles = modelRoleMapper.selectList(null);
-        for (ModelRole role : roles) {
-            if (role.getModelConfigId() != null) {
-                try {
-                    loadModel(role.getRoleKey(), role.getModelConfigId());
-                } catch (Exception e) {
-                    log.error("加载角色 {} 的模型失败", role.getRoleKey(), e);
-                }
-            }
-        }
-        log.info("模型提供者初始化完成，已加载 {} 个模型", modelCache.size());
-    }
-
-    @MangoBotEventListener
-    public boolean onModelRoleChanged(ModelRoleChangedEvent event) {
-        String roleKey = event.getRoleKey();
-        log.info("收到模型角色变更事件: {}", roleKey);
-
-        if (event.getNewModelConfigId() != null) {
-            loadModel(roleKey, event.getNewModelConfigId());
-        } else {
-            modelCache.remove(roleKey);
-            log.info("角色 {} 的模型已移除", roleKey);
-        }
-        return true;
-    }
-
-
-    /**
-     * 获取指定角色的模型实例
-     * @param roleKey 角色标识（main, assistant, image, embedding）
-     * @return 模型实例，如果未配置则返回 null
-     */
-    public OpenAIChatModel getModel(String roleKey) {
-        OpenAIChatModel model = modelCache.get(roleKey);
-        if (model == null) {
-            Long configId = getModelConfigIdByKey(roleKey);
-            if (configId != null) {
-                loadModel(roleKey, configId);
-                model = modelCache.get(roleKey);
-            }
-        }
-        return model;
-    }
 
     /**
      * 获取指定角色的模型配置详情
@@ -144,9 +81,9 @@ public class ModelProvider {
     }
 
     /**
-     * 解析指定角色的端点凭据（地址 / 密钥 / 模型名 / 供应商名）。
+     * 解析指定角色的完整配置元信息（凭据 + 生成参数）。
      *
-     * <p>给拿不到 {@link OpenAIChatModel} 实例、只能自己拉起进程并注入环境变量的运行时用。
+     * <p>给拿不到建好的模型对象、只能自己拉起进程并注入环境变量或自己发 HTTP 请求的运行时用。
      * model_roles → model_configs → model_providers 这三段关联的读取集中在这里一处，
      * 避免各处自己拼。
      *
@@ -195,7 +132,8 @@ public class ModelProvider {
         }
 
         return ModelEndpoint.of(provider.getBaseUrl().trim(), provider.getApiKey().trim(),
-                config.getModelName().trim(), provider.getName());
+                config.getModelName().trim(), provider.getName(),
+                config.getTemperature(), config.getMaxTokens(), config.getTopP(), config.getTimeout());
     }
 
     /**
@@ -249,36 +187,6 @@ public class ModelProvider {
         ));
 
         log.info("更新角色 {} 的模型配置: {} -> {}", roleKey, oldConfigId, modelConfigId);
-    }
-
-    private void loadModel(String roleKey, Long configId) {
-        ModelConfig config = modelConfigMapper.selectById(configId);
-
-        // 若是空模型则清除缓存并返回
-        if (config == null || config.getProviderId() == 0) {
-            modelCache.remove(roleKey);
-            return;
-        }
-
-        if (config == null || config.getIsEnabled() != 1) {
-            modelCache.remove(roleKey);
-            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "模型配置不存在");
-        }
-        io.github.mangomaner.mangobot.module.configuration.model.domain.ModelProvider provider = modelProviderMapper.selectById(config.getProviderId());
-        if (provider == null || provider.getIsEnabled() != 1) {
-            modelCache.remove(roleKey);
-            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "模型供应商不存在");
-        }
-
-        OpenAIChatModel model = OpenAIChatModel.builder()
-                .baseUrl(provider.getBaseUrl())
-                .apiKey(provider.getApiKey())
-                .stream(true)
-                .modelName(config.getModelName())
-                .build();
-
-        modelCache.put(roleKey, model);
-        log.info("加载模型成功: {} -> {} ({})", roleKey, config.getModelName(), provider.getName());
     }
 
     private Long getModelConfigIdByKey(String roleKey) {

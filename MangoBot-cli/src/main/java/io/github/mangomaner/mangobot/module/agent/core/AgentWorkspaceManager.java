@@ -19,11 +19,11 @@ import java.util.List;
  * Workspace / 全局能力目录管理器
  *
  * <p>工作区按 (Bot, 来源) 拆分（Web/群聊/私聊），作为 Agent 的文件系统根目录与状态/技能存储。
- * 三层提示词已改为 DB 驱动（prompt_norm / style_injection），人格不再由 AGENTS.md 承载。
- * Agent 保留内置 WorkspaceContextMiddleware（注入 MEMORY.md / knowledge / 工作区清单），
+ * 人格与行为不由工作区文件承载（AGENTS.md 已退役，行为来源是技能），
  * 工作区不再播种 AGENTS.md——已退役文件会被迁移删除，避免旧人格注入与空文件噪音。
  *
- * <p>全局能力目录：data/capabilities/skills/（技能内容，所有 Bot 共用）；
+ * <p>全局能力目录：data/capabilities/skills/（技能内容，所有 Bot 共用）。该目录本身是交给 claude 的
+ * 插件目录，技能必须落在它下面的 skills/ 子目录里才会被识别；
  * AgentState 存储：data/state/。能力定义（工具/MCP/Skill 元数据）以 DB 为 source of truth。
  */
 @Slf4j
@@ -33,7 +33,10 @@ public class AgentWorkspaceManager {
 
     private static final String WORKSPACES_DIR = "data/workspaces";
     private static final String CAPABILITIES_DIR = "data/capabilities";
-    private static final String SKILLS_DIR = "data/capabilities/skills";
+    /** 插件目录（claude --plugin-dir 的值） */
+    private static final String PLUGIN_DIR = "data/capabilities/skills";
+    /** 插件目录下真正存技能内容的子目录 */
+    private static final String SKILLS_DIR = PLUGIN_DIR + "/skills";
     private static final String STATE_DIR = "data/state";
 
     /** 升级前技能内容所在目录，首次启动迁移到全局能力目录 */
@@ -55,6 +58,7 @@ public class AgentWorkspaceManager {
      */
     public void init() {
         FileUtils.createDirectory(getCapabilitiesDir());
+        FileUtils.createDirectory(getPluginDirectory());
         Path skillsDir = getSkillsDirectory();
         migrateLegacySkills(skillsDir);
         FileUtils.createDirectory(skillsDir);
@@ -70,8 +74,8 @@ public class AgentWorkspaceManager {
             migrateAgentsMdPlaceholder(botRoot.resolve(GROUP_WORKSPACE));
             migrateAgentsMdPlaceholder(botRoot.resolve(PRIVATE_WORKSPACE));
         }
-        log.info("Agent workspace initialized: capabilities={}, skills={}, state={}",
-                getCapabilitiesDir(), skillsDir, getStateDir());
+        log.info("Agent workspace initialized: capabilities={}, plugin={}, skills={}, state={}",
+                getCapabilitiesDir(), getPluginDirectory(), skillsDir, getStateDir());
     }
 
     /** 全局能力目录（DB 定义之外的技能内容文件） */
@@ -79,7 +83,12 @@ public class AgentWorkspaceManager {
         return FileUtils.resolvePath(CAPABILITIES_DIR);
     }
 
-    /** 全局技能内容目录 */
+    /** 技能插件目录（交给 claude 的 --plugin-dir） */
+    public Path getPluginDirectory() {
+        return FileUtils.resolvePath(PLUGIN_DIR);
+    }
+
+    /** 全局技能内容目录（插件目录下的 skills/ 子目录） */
     public Path getSkillsDirectory() {
         return FileUtils.resolvePath(SKILLS_DIR);
     }
@@ -225,7 +234,7 @@ public class AgentWorkspaceManager {
     }
 
     /**
-     * Web 工作区不再播种 AGENTS.md（人格由 DB 三层提示词承载），仅记录 persona 版本标记。
+     * Web 工作区不再播种 AGENTS.md（行为由技能承载），仅记录 persona 版本标记。
      */
     private void seedAgentsMd(Path workspace) {
         FileUtils.writeString(workspace.resolve(PERSONA_VERSION_FILE), PERSONA_VERSION);
@@ -240,7 +249,7 @@ public class AgentWorkspaceManager {
     }
 
     /**
-     * AGENTS.md 已退役（人格由 DB 三层提示词承载）：删除工作区里残留的 AGENTS.md。
+     * AGENTS.md 已退役（行为由技能承载）：删除工作区里残留的 AGENTS.md。
      * 空文件会让内置 WorkspaceContextMiddleware 注入 "File exists but has empty contents" 噪音，
      * 故直接删除文件而非清空。幂等：删除后不存在，后续启动跳过。
      */

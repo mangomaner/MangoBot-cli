@@ -11,6 +11,7 @@ import reactor.core.publisher.Sinks;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Semaphore;
@@ -43,6 +44,8 @@ public class ClaudeSession {
     private final ClaudeRuntimeProperties properties;
     /** 每次拉起进程时现取端点环境变量；由 {@code ClaudeRuntimeManager} 提供，读「模型设置」的主模型。 */
     private final Supplier<Map<String, String>> endpointEnvSupplier;
+    /** 能力相关的命令行参数（--plugin-dir / --mcp-config）；spawn 那一刻定死，改配置要重建会话。 */
+    private final Supplier<List<String>> capabilityArgsSupplier;
 
     private final Semaphore turnGate = new Semaphore(1);
     private final AtomicBoolean turnInFlight = new AtomicBoolean(false);
@@ -52,13 +55,15 @@ public class ClaudeSession {
 
     public ClaudeSession(String key, Path binary, Path workingDir, Path configDir,
                          ClaudeRuntimeProperties properties,
-                         Supplier<Map<String, String>> endpointEnvSupplier) {
+                         Supplier<Map<String, String>> endpointEnvSupplier,
+                         Supplier<List<String>> capabilityArgsSupplier) {
         this.key = key;
         this.binary = binary;
         this.workingDir = workingDir;
         this.configDir = configDir;
         this.properties = properties;
         this.endpointEnvSupplier = endpointEnvSupplier;
+        this.capabilityArgsSupplier = capabilityArgsSupplier;
     }
 
     public String key() {
@@ -157,10 +162,19 @@ public class ClaudeSession {
         FileUtils.createDirectory(workingDir);
         FileUtils.createDirectory(configDir);
 
+        List<String> args = new ArrayList<>();
+        List<String> capabilityArgs = capabilityArgsSupplier != null ? capabilityArgsSupplier.get() : null;
+        if (capabilityArgs != null) {
+            args.addAll(capabilityArgs);
+        }
+        if (properties.getExtraArgs() != null) {
+            args.addAll(properties.getExtraArgs());
+        }
+
         ClaudeProcess started;
         try {
             started = ClaudeProcess.start(binary, workingDir, configDir,
-                    endpointEnvSupplier.get(), properties.getExtraArgs());
+                    endpointEnvSupplier.get(), args);
         } catch (IOException e) {
             throw new IllegalStateException("Failed to start claude process for session " + key, e);
         }

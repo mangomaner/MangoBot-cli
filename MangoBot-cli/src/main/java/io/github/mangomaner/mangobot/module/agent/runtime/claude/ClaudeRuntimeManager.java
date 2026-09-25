@@ -1,9 +1,16 @@
 package io.github.mangomaner.mangobot.module.agent.runtime.claude;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.github.mangomaner.mangobot.annotation.messageHandler.MangoBotEventListener;
 import io.github.mangomaner.mangobot.api.MangoModelApi;
 import io.github.mangomaner.mangobot.api.enums.ModelRole;
 import io.github.mangomaner.mangobot.events.configuration.ModelRoleChangedEvent;
+import io.github.mangomaner.mangobot.module.agent.capability.skill.SkillManager;
+import io.github.mangomaner.mangobot.module.agent.capability.tool.JavaToolMcpServer;
+import io.github.mangomaner.mangobot.module.agent.model.domain.AgentMcpConfig;
+import io.github.mangomaner.mangobot.module.agent.service.AgentMcpConfigService;
 import io.github.mangomaner.mangobot.module.configuration.model.domain.ModelEndpoint;
 import io.github.mangomaner.mangobot.utils.FileUtils;
 import jakarta.annotation.PreDestroy;
@@ -13,6 +20,7 @@ import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -21,7 +29,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Claude Code 运行时管理器：持有各会话的常驻 claude 进程。
  *
- * <p>会话按 <code>botId:sourceKey</code> 缓存（沿用 {@code AgentRuntimeRegistry} 的命名习惯）。
+ * <p>会话按 <code>botId:sourceKey</code> 缓存。
  * 进程默认懒启动——第一轮对话时才拉起，避免把冷启动和首次运行卡死的风险带进开机流程。
  *
  * <p><b>端点凭据不在这里配置</b>：地址 / 密钥 / 模型名每次拉起子进程时从「模型设置」的主模型
@@ -42,7 +50,15 @@ public class ClaudeRuntimeManager {
     private static final String DEFAULT_WORK_DIR = "data/claude-work";
     private static final long PROBE_SETTLE_MILLIS = 2000L;
 
+    /** 会话工作目录下生成的 MCP 配置文件（--mcp-config 的值） */
+    private static final String MCP_CONFIG_FILE = "mcp.json";
+
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
     private final ClaudeRuntimeProperties properties;
+    private final SkillManager skillManager;
+    private final AgentMcpConfigService mcpConfigService;
+    private final JavaToolMcpServer javaToolMcpServer;
 
     private final Map<String, ClaudeSession> sessions = new ConcurrentHashMap<>();
 
@@ -110,7 +126,8 @@ public class ClaudeRuntimeManager {
         }
         String key = botId + ":" + sourceKey;
         return sessions.computeIfAbsent(key, k -> new ClaudeSession(k, binary,
-                sessionWorkingDir(k), configDir, properties, this::endpointEnv));
+                sessionWorkingDir(k), configDir, properties, this::endpointEnv,
+                () -> capabilityArgs(k)));
     }
 
     public boolean isReady() {
@@ -238,7 +255,7 @@ public class ClaudeRuntimeManager {
         ClaudeSession probe = null;
         try {
             probe = new ClaudeSession("__probe__", binary, sessionWorkingDir("__probe__"), configDir,
-                    properties, this::endpointEnv);
+                    properties, this::endpointEnv, () -> capabilityArgs("__probe__"));
             probe.warmup();
             Thread.sleep(PROBE_SETTLE_MILLIS);
             boolean running = probe.isRunning();
@@ -276,6 +293,164 @@ public class ClaudeRuntimeManager {
                 "ANTHROPIC_BASE_URL", endpoint.baseUrl(),
                 "ANTHROPIC_AUTH_TOKEN", endpoint.apiKey(),
                 "ANTHROPIC_MODEL", endpoint.modelName());
+    }
+
+    /**
+     * 能力相关的命令行参数：技能经 {@code --plugin-dir} 下发，MCP 连接经 {@code --mcp-config} 下发。
+     *
+     * <p>技能是 bot 行为的唯一来源，插件目录由 {@link SkillManager} 维护——那里已按 claude 的插件布局
+     * 排好（技能在插件目录下的 {@code skills/} 子目录里），所以这里只负责把路径递下去。
+     *
+     * <p>来源（web/群聊/私聊）不做区分：插件目录是同一个，技能页上的"启用来源"因此不影响下发结果，
+     * 只有总开关 {@code enabled} 有效。
+     *
+     * <p>另外还要放行 MCP 工具：本项目的 claude 是 {@code -p} 起的，没有交互界面可点批准，
+     * 不写白名单的话 {@code mcp__*} 一律落进 {@code permission_denials}。见 {@link #mcpAllowRules()}。
+     */
+    private List<String> capabilityArgs(String key) {
+        List<String> args = new ArrayList<>();
+
+        // headless（-p）下没有人能点「批准」，不在白名单里的工具一律被拒（结果里是 permission_denials）。
+        // 规则写成一条空格分隔的参数：--allowedTools 是变长参数，后面紧跟 --plugin-dir 才会停下；
+        // 放在最前面就是为了让它后面一定有选项，不至于把后面的参数一起吞掉。
+        List<String> allowRules = mcpAllowRules();
+        if (!allowRules.isEmpty()) {
+            args.add("--allowedTools");
+            args.add(String.join(" ", allowRules));
+        }
+
+        args.add("--plugin-dir");
+        args.add(skillManager.getPluginDirectory().toString());
+
+        writeMcpConfig(sessionWorkingDir(key)).ifPresent(file -> {
+            args.add("--mcp-config");
+            args.add(file.toString());
+            // 只认我们给的这份：否则 claude 还会去读用户/项目里的 .mcp.json
+            args.add("--strict-mcp-config");
+        });
+        return args;
+    }
+
+    /**
+     * 要放行的 MCP 工具规则，形如 {@code mcp__<server名>__*}（claude 认的写法，见其工具名的拼法）。
+     *
+     * <p>按 server 粒度放行而不是逐个工具名：外部连接的工具有哪些只有连上才知道，这里拿不到清单。
+     * 粒度对齐的是「能力页上启用了吗」——启用的连接整条可用，这和以前把工具交给 agent 的语义一致。
+     */
+    private List<String> mcpAllowRules() {
+        List<String> rules = new ArrayList<>();
+        if (javaToolMcpServer.exposedToolCount() > 0) {
+            rules.add("mcp__" + JavaToolMcpServer.MCP_SERVER_NAME + "__*");
+        }
+        for (AgentMcpConfig config : mcpConfigService.listEnabled()) {
+            String name = config.getMcpName();
+            if (name == null || name.isBlank() || JavaToolMcpServer.MCP_SERVER_NAME.equals(name)) {
+                continue;
+            }
+            rules.add("mcp__" + name + "__*");
+        }
+        return rules;
+    }
+
+    /**
+     * 写成 claude 认的 {@code {"mcpServers":{...}}} 文件。
+     *
+     * <p>两条来源合在一起：MangoBot 自己起的 Java 工具 server（本进程内，见 {@link JavaToolMcpServer}），
+     * 以及「能力页」上配置并启用的外部 MCP 连接。
+     *
+     * <p>外部连接的 {@code connection_config} 里存的就是单个 server 的对象字面量（页面上是个自由 JSON
+     * 文本框），这里只补 claude 需要的 {@code type}：STDIO 不写（默认值），SSE / HTTP 转成小写。
+     *
+     * <p>两条来源都没东西时返回 empty——此时不传 {@code --mcp-config}，
+     * 而不是传一个空的 {@code mcpServers}，免得 spawn 参数里多一份没意义的文件。
+     */
+    private Optional<Path> writeMcpConfig(Path sessionDir) {
+        ObjectNode servers = MAPPER.createObjectNode();
+        int written = writeJavaToolServer(servers) + writeConfiguredServers(servers);
+        if (written == 0) {
+            return Optional.empty();
+        }
+
+        ObjectNode root = MAPPER.createObjectNode();
+        root.set("mcpServers", servers);
+
+        FileUtils.createDirectory(sessionDir);
+        Path file = sessionDir.resolve(MCP_CONFIG_FILE);
+        FileUtils.writeString(file, root.toPrettyString());
+        log.info("已为会话写入 {} 条 MCP 连接配置：{}", written, file);
+        return Optional.of(file);
+    }
+
+    /**
+     * MangoBot 自己起的 Java 工具 server（本进程内）。
+     *
+     * <p>一个工具都没暴露时干脆不写：省掉 claude 侧一次注定空手而归的连接。
+     */
+    private int writeJavaToolServer(ObjectNode servers) {
+        if (javaToolMcpServer.exposedToolCount() == 0) {
+            return 0;
+        }
+        ObjectNode server = servers.putObject(JavaToolMcpServer.MCP_SERVER_NAME);
+        server.put("type", "http");
+        server.put("url", javaToolMcpServer.serverUrl());
+        return 1;
+    }
+
+    /** 「能力页」上配置并启用的外部 MCP 连接。 */
+    private int writeConfiguredServers(ObjectNode servers) {
+        int written = 0;
+        for (AgentMcpConfig config : mcpConfigService.listEnabled()) {
+            String name = config.getMcpName();
+            if (name == null || name.isBlank()) {
+                log.warn("MCP 连接 id={} 没有名称，跳过", config.getId());
+                continue;
+            }
+            if (JavaToolMcpServer.MCP_SERVER_NAME.equals(name)) {
+                log.warn("MCP 连接 id={} 占用了保留名 {}，跳过——这个名字留给 MangoBot 自己的工具 server",
+                        config.getId(), name);
+                continue;
+            }
+            ObjectNode server = parseConnectionConfig(config);
+            if (server == null) {
+                continue;
+            }
+            String type = transportTypeForClaude(config.getTransportType());
+            if (type != null) {
+                server.put("type", type);
+            }
+            servers.set(name, server);
+            written++;
+        }
+        return written;
+    }
+
+    /** 解析 {@code connection_config}；不是 JSON 对象就跳过（一条坏配置不该拖垮 spawn）。 */
+    private ObjectNode parseConnectionConfig(AgentMcpConfig config) {
+        String raw = config.getConnectionConfig();
+        if (raw == null || raw.isBlank()) {
+            log.warn("MCP 连接「{}」的连接配置为空，跳过", config.getMcpName());
+            return null;
+        }
+        try {
+            JsonNode node = MAPPER.readTree(raw);
+            if (!node.isObject()) {
+                log.warn("MCP 连接「{}」的连接配置不是 JSON 对象，跳过", config.getMcpName());
+                return null;
+            }
+            return (ObjectNode) node;
+        } catch (Exception e) {
+            log.warn("MCP 连接「{}」的连接配置不是合法 JSON，跳过：{}", config.getMcpName(), e.getMessage());
+            return null;
+        }
+    }
+
+    /** claude 的 transport 取值；STDIO 是默认值，不写 type。 */
+    private static String transportTypeForClaude(String transportType) {
+        if (transportType == null || transportType.isBlank()) {
+            return null;
+        }
+        String normalized = transportType.trim().toLowerCase();
+        return "stdio".equals(normalized) ? null : normalized;
     }
 
     /** 启动时把端点状态讲清楚——但只讲地址与模型名，密钥绝不进日志。 */

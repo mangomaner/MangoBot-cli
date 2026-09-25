@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -37,7 +38,14 @@ class ClaudeSessionSmokeTest {
         Path workingDir = FileUtils.getBaseDirectory().resolve("data/claude-work/junit-smoke");
         ClaudeConfigSeeder.seed(configDir, workingDir);
 
-        ClaudeSession session = new ClaudeSession("junit:smoke", binary.get(), workingDir, configDir, properties);
+        // 端点凭据平时由 ClaudeRuntimeManager 在 spawn 时从「模型设置」现取；这里没起 Spring，
+        // 就直接读它注入的同名环境变量，没配齐当没有登录态跳过（和二进制缺失一个处理）。
+        Map<String, String> endpointEnv = endpointEnvFromEnvironment();
+        assumeTrue(endpointEnv != null,
+                "未提供 ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN / ANTHROPIC_MODEL，跳过");
+
+        ClaudeSession session = new ClaudeSession("junit:smoke", binary.get(), workingDir, configDir,
+                properties, () -> endpointEnv, List::of);
         try {
             List<ClaudeEvent> events = session.sendTurn("Reply with exactly the word: PONG")
                     .collectList()
@@ -56,5 +64,19 @@ class ClaudeSessionSmokeTest {
         } finally {
             session.close();
         }
+    }
+
+    /** 与 {@code ClaudeRuntimeManager.endpointEnv()} 注进子进程的三项一致；缺任一项返回 null。 */
+    private static Map<String, String> endpointEnvFromEnvironment() {
+        String baseUrl = System.getenv("ANTHROPIC_BASE_URL");
+        String token = System.getenv("ANTHROPIC_AUTH_TOKEN");
+        String model = System.getenv("ANTHROPIC_MODEL");
+        if (baseUrl == null || token == null || model == null) {
+            return null;
+        }
+        return Map.of(
+                "ANTHROPIC_BASE_URL", baseUrl,
+                "ANTHROPIC_AUTH_TOKEN", token,
+                "ANTHROPIC_MODEL", model);
     }
 }
