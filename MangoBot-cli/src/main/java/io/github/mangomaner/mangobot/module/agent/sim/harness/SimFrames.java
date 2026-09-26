@@ -18,9 +18,44 @@ public final class SimFrames {
     private SimFrames() {
     }
 
+    /**
+     * 一条带图的群消息：图（+ 可选的一段文字）。
+     *
+     * <p>{@code url} 必须是应用能下载的地址——它走 {@code FileUtils.downloadFile}（HttpClient），
+     * 所以指向 {@link SimMediaServer} 那个小服务。这样图片会真的落进 {@code bot_files}，
+     * 再由 {@code ChatTurnRunner} 读字节当图片块送进模型——与生产同形状。
+     *
+     * @param subType 1/11 是表情包（存 data/meme），其余当普通图（存 data/image）
+     */
+    public static String groupMessageWithImage(long selfId, long groupId, long memberQq, String nickname,
+                                               String text, String fileId, String url, int subType,
+                                               int messageId, long epochSeconds) {
+        ObjectNode root = baseFrame(selfId, groupId, memberQq, nickname, text, messageId, epochSeconds);
+        ArrayNode message = (ArrayNode) root.get("message");
+
+        ObjectNode image = message.insertObject(0);
+        image.put("type", "image");
+        ObjectNode data = image.putObject("data");
+        data.put("file", fileId);
+        data.put("url", url);
+        data.put("sub_type", subType);
+        return root.toString();
+    }
+
     /** 一条群消息。{@code epochSeconds} 是帧上自报的时间，信封里的 {@code [HH:mm]} 由它来。 */
     public static String groupMessage(long selfId, long groupId, long memberQq, String nickname,
                                       String text, int messageId, long epochSeconds) {
+        ObjectNode root = baseFrame(selfId, groupId, memberQq, nickname, text, messageId, epochSeconds);
+        ArrayNode message = (ArrayNode) root.get("message");
+        ObjectNode segment = message.addObject();
+        segment.put("type", "text");
+        segment.putObject("data").put("text", text == null ? "" : text);
+        return root.toString();
+    }
+
+    /** 帧的公共部分（不含 message 段）。 */
+    private static ObjectNode baseFrame(long selfId, long groupId, long memberQq, String nickname,
+                                        String text, int messageId, long epochSeconds) {
         ObjectNode root = SimJson.MAPPER.createObjectNode();
         root.put("post_type", "message");
         root.put("message_type", "group");
@@ -35,16 +70,13 @@ public final class SimFrames {
         root.put("font", 0);
         root.put("message_format", "array");
 
-        ArrayNode message = root.putArray("message");
-        ObjectNode segment = message.addObject();
-        segment.put("type", "text");
-        segment.putObject("data").put("text", text == null ? "" : text);
+        root.putArray("message");
 
         ObjectNode sender = root.putObject("sender");
         sender.put("user_id", memberQq);
         sender.put("nickname", nickname);
         sender.put("card", nickname);
         sender.put("role", "member");
-        return root.toString();
+        return root;
     }
 }

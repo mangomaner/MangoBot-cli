@@ -185,6 +185,17 @@ public class SkillManager {
         }
     }
 
+    /**
+     * 这个技能对该来源现在启用吗（总开关 + enabled_list）。
+     *
+     * <p>给"技能变更之后该通知哪些会话"用：控制指令只该发给「来源上真有这个技能」的会话，
+     * 否则等于叫一个会话去读它根本没有的技能。实现直接复用下面那条判定，不另写一份口径。
+     */
+    public boolean isEnabledFor(String skillPath, SessionSource source) {
+        AgentSkillConfig config = skillConfigService.getBySkillPath(skillPath);
+        return config != null && supportsSource(config, source);
+    }
+
     /** 技能对该来源是否启用：总开关打开，且 enabled_list 里有这个来源。 */
     private boolean supportsSource(AgentSkillConfig skill, SessionSource source) {
         if (!Boolean.TRUE.equals(skill.getEnabled())) {

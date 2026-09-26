@@ -24,9 +24,10 @@ adapter/
     │   │   ├── OneBotEchoHandler.java     # 异步转同步处理器
     │   │   └── OneBotApiResponse.java     # API 响应模型
     │   ├── inbound/                       # 入站消息处理
-    │   │   ├── json_to_event/             # JSON → 事件
-    │   │   │   ├── OneBotEventParser.java
-    │   │   │   └── OneBotEventDeserializer.java
+    │   │   ├── json_to_event/             # JSON → 事件（按 post_type 路由，唯一入口）
+    │   │   │   └── OneBotEventParser.java
+    │   │   ├── process_file/              # 文件摄取：下载落库 + VLM 描述
+    │   │   │   └── OneBotMessageFileProcessor.java
     │   │   └── receive_websocket_message/ # WebSocket 消息处理
     │   │       └── OneBotMessageHandler.java
     │   └── outbound/                      # 出站消息处理
@@ -43,25 +44,15 @@ adapter/
     │   │   ├── OneBotApiRequest.java      # API 请求
     │   │   ├── CreateOneBotConfigRequest.java
     │   │   └── UpdateOneBotConfigRequest.java
-    │   ├── event/                         # 事件模型
+    │   ├── event/                         # 事件基类（只有抽象类，具体事件不在这）
     │   │   ├── OneBotEvent.java           # 事件接口
     │   │   ├── OneBotBaseEvent.java       # 事件基类
-    │   │   ├── message/                   # 消息事件
-    │   │   │   ├── OneBotMessageEvent.java
-    │   │   │   ├── OneBotGroupMessageEvent.java
-    │   │   │   └── OneBotPrivateMessageEvent.java
-    │   │   ├── meta/                      # 元事件
-    │   │   │   ├── OneBotMetaEvent.java
-    │   │   │   ├── OneBotHeartbeatEvent.java
-    │   │   │   └── OneBotLifecycleEvent.java
-    │   │   └── notice/                    # 通知事件
-    │   │       ├── OneBotNoticeEvent.java
-    │   │       ├── OneBotGroupBanEvent.java
-    │   │       ├── OneBotGroupDecreaseEvent.java
-    │   │       ├── OneBotGroupIncreaseEvent.java
-    │   │       ├── OneBotGroupRecallEvent.java
-    │   │       ├── OneBotEssenceEvent.java
-    │   │       └── PokeEvent.java
+    │   │   ├── message/                   # 消息事件基类
+    │   │   │   └── OneBotMessageEvent.java
+    │   │   ├── meta/                      # 元事件基类
+    │   │   │   └── OneBotMetaEvent.java
+    │   │   └── notice/                    # 通知事件基类
+    │   │       └── OneBotNoticeEvent.java
     │   ├── segment/                       # 消息段类型
     │   │   ├── OneBotMessageSegment.java  # 消息段基类
     │   │   ├── TextSegment.java           # 文本
@@ -90,18 +81,28 @@ adapter/
     │   ├── OneBotConfigService.java       # 配置服务接口
     │   └── impl/
     │       └── OneBotConfigServiceImpl.java
-    ├── util/                              # 工具类（单数，只有一条）
-    │   └── ConnectionUrlUtil.java         # WS 连接 URL 解析
-    └── utils/                             # 工具类（复数）
+    └── render/                            # 渲染：segment ↔ 模型可读文本
         ├── ChatEnvelope.java              # 信封模板 [时间] 名字(qq): 正文 [消息#id]
         ├── MessageLexer.java              # segment ↔ 模型字面格式的双向转换（含位置/卡片渲染）
         ├── MessageLexerException.java     # 字面格式非法
-        ├── OneBotMessageParser.java       # 消息解析器（@Component：落库 parse_message + 引用/转发展开）
-        └── OneBotMessageFileProcessor.java # 文件处理器（@Component：下载落库 + VLM 描述）
+        └── OneBotMessageParser.java       # 消息解析器（@Component：落库 parse_message + 引用/转发展开）
 ```
 
-> ⚠️ `util/`（单数）与 `utils/`（复数）**只差一个字母但内容不同**，`utils/` 里还混着两个带 Spring 注解的业务组件
-> （`OneBotMessageParser`、`OneBotMessageFileProcessor`）而不是纯工具。这是历史遗留，暂时照实记录，动它需要单独一次重构。
+> 📌 **具体事件类不在 `adapter/` 里，在顶层 `events/onebot/`**（`OneBotGroupMessageEvent`、`OneBotHeartbeatEvent`、
+> `PokeEvent` 等）。两边是**镜像结构**：`adapter/onebot/model/event/{message,meta,notice}/` 放抽象基类，
+> `events/onebot/{message,meta,notice}/` 放具体类并继承它们。分成两个顶层包是有意的——事件是对外广播的公共契约，
+> 插件要直接引用；而基类是适配器内部的反序列化模型。第一次读代码容易在两边找错，所以在这里点明。
+>
+> 按 `post_type` 路由到具体事件类的逻辑在 `handler/inbound/json_to_event/OneBotEventParser` 里
+> （以前是 `OneBotBaseEvent` 上挂 `@JsonDeserialize`，那会造成 model → handler 的反向依赖，已解开）。
+
+> 渲染为什么单独一个包：这四件事是同一个职责——**把收到的段变成模型读得懂的文本**。
+> 以前它们在 `utils/` 里，跟纯工具混在一起；`OneBotMessageParser` 还是个带网络往返的 `@Component`，
+> 放在叫「工具类」的包里名不副实。`OneBotMessageFileProcessor`（下载落库 + VLM 描述）是入站流水线的一段，
+> 归在 `handler/inbound/process_file/`。
+>
+> `ConnectionUrlUtil` 原本在 `adapter/onebot/util/`（**单数**，与 `utils/` 只差一个字母），
+> 且被 `infra/websocket/` 反向依赖。它其实是通用的 WS 地址解析，已挪到顶层 `utils/`，两个问题一起消掉。
 
 ## 核心组件
 
@@ -563,8 +564,8 @@ adapter/
     │   ├── NewPlatformConfigService.java
     │   └── impl/
     │       └── NewPlatformConfigServiceImpl.java
-    └── utils/
-        └── MessageParser.java
+    └── render/                         # 渲染：段 → 模型可读文本（没有这类需求就不建）
+        └── NewPlatformMessageParser.java
 ```
 
 ### 第三步：实现协议适配器

@@ -51,8 +51,11 @@ public class SimController {
      */
     @PostMapping("/{id}/say")
     public BaseResponse<List<SimSend>> say(@PathVariable Integer id, @RequestBody SayRequest request) {
-        return ResultUtils.success(
-                simService.say(id, request.speaker(), request.qq(), request.text()));
+        // 注意拆箱：imageSubType 是可空的 Integer，纯文字行里它是 null——
+        // 直接传给 int 形参会 NPE（踩过）
+        int subType = request.imageSubType() == null ? 0 : request.imageSubType();
+        return ResultUtils.success(simService.say(id, request.speaker(), request.qq(),
+                request.text(), request.imageFileId(), subType));
     }
 
     /** 这场对话到目前为止的完整转录。 */
@@ -89,14 +92,20 @@ public class SimController {
     /** 运行时是否就绪——没配好模型就没有评判可言，前端靠它给出提示。 */
     @GetMapping("/status")
     public BaseResponse<StatusVO> status() {
-        return ResultUtils.success(
-                new StatusVO(runtimeManager.isReady(), runtimeManager.notReadyReason()));
+        return ResultUtils.success(new StatusVO(
+                runtimeManager.isReady(), runtimeManager.notReadyReason(),
+                simService.activeSessionIds()));
     }
 
     public record StartRequest(String title, String personaLabel, String seedRef) {
     }
 
-    public record SayRequest(String speaker, Long qq, String text) {
+    /**
+     * @param imageFileId  该条带图时填 {@code bot_files} 里真实存在的 fileId；纯文字留空
+     * @param imageSubType 1/11 是表情包，其余当普通图
+     */
+    public record SayRequest(String speaker, Long qq, String text,
+                             String imageFileId, Integer imageSubType) {
     }
 
     public record ReviewRequest(String seedExcerpt) {
@@ -105,6 +114,7 @@ public class SimController {
     public record DetailVO(SimSession session, List<SimMessage> messages) {
     }
 
-    public record StatusVO(boolean ready, String reason) {
+    /** @param activeSessions 当前挂着活连接的模拟会话 id；同一时刻最多一个，空表示没有对练中的场次 */
+    public record StatusVO(boolean ready, String reason, List<Integer> activeSessions) {
     }
 }

@@ -32,6 +32,9 @@ import java.util.Optional;
  * {@code ClaudeRuntimeManager.onModelRoleChanged} 会把会话整个换掉并关掉旧进程，
  * 缓存住就会往一个已经关掉的进程写。
  *
+ * <p><b>每轮发给模型的是两块</b>：控制块（我方的指令，可能为空）+ 聊天记录（信封）。
+ * 组装只走 {@link TurnPromptComposer} 一处，别在这里自己拼。
+ *
  * <p>本方法跑在 {@code ChatInboxRegistry} 的轮次池线程上，所以这里允许阻塞等这一轮结束——
  * 派发线程那边只负责缓冲。等，是因为要靠 {@code result} 事件给 inbox 一个"这轮真的完了"的信号，
  * 也是因为发送工具需要的轮次上下文必须活到轮次结束。
@@ -46,6 +49,7 @@ public class ChatTurnRunner {
 
     private final ClaudeRuntimeManager runtimeManager;
     private final ClaudeRuntimeProperties properties;
+    private final TurnControlRegistry turnControls;
 
     public void run(ChatTarget target, List<IncomingLine> batch) {
         if (batch.isEmpty()) {
@@ -63,7 +67,10 @@ public class ChatTurnRunner {
         }
 
         List<ClaudeImage> images = collectImages(batch);
-        String text = buildEnvelope(batch);
+        // 每轮的提示词只在这一处组装：控制块（我方指令）+ 聊天记录（信封）。
+        // peek 只读——下面万一提交不出去（会话正忙），排队的控制不能就这么丢了。
+        List<TurnControl> controls = turnControls.peek(sessionKey);
+        String text = TurnPromptComposer.compose(controls, buildEnvelope(batch));
         TurnContext context = TurnContext.of(target.botId(), target.source(), target.targetId());
 
         TurnContextRegistry.begin(sessionKey, context);
@@ -73,6 +80,8 @@ public class ChatTurnRunner {
                 log.info("会话正忙，这一批 {} 条消息没有提交：{}", batch.size(), sessionKey);
                 return;
             }
+            // 提交成功了才算"带上了"，这时才把一次性控制清掉；常驻的留着下一轮继续带
+            turnControls.commitOnce(sessionKey);
             List<ClaudeEvent> events = flux.get()
                     .collectList()
                     .block(Duration.ofSeconds(properties.getTurnTimeoutSeconds() + 5L));

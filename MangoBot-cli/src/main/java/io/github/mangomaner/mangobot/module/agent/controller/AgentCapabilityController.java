@@ -2,11 +2,14 @@ package io.github.mangomaner.mangobot.module.agent.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.mangomaner.mangobot.module.agent.capability.skill.SkillManager;
+import io.github.mangomaner.mangobot.module.agent.chat.TurnControl;
+import io.github.mangomaner.mangobot.module.agent.chat.TurnControlRegistry;
 import io.github.mangomaner.mangobot.module.agent.capability.tool.JavaToolLoader;
 import io.github.mangomaner.mangobot.module.agent.capability.tool.JavaToolMcpServer;
 import io.github.mangomaner.mangobot.module.agent.model.domain.AgentJavaToolConfig;
 import io.github.mangomaner.mangobot.module.agent.model.domain.AgentMcpConfig;
 import io.github.mangomaner.mangobot.module.agent.model.domain.AgentMcpToolConfig;
+import io.github.mangomaner.mangobot.module.agent.model.enums.SessionSource;
 import io.github.mangomaner.mangobot.module.agent.model.domain.AgentSkillConfig;
 import io.github.mangomaner.mangobot.module.agent.model.dto.CreateMcpConfigRequest;
 import io.github.mangomaner.mangobot.module.agent.model.dto.CreateSkillRequest;
@@ -69,6 +72,9 @@ public class AgentCapabilityController {
     private final SkillManager skillManager;
 
     private final ClaudeRuntimeManager claudeRuntimeManager;
+
+    /** 技能变更后要给活会话排"重读/作废"指令，走的就是这个登记处。 */
+    private final TurnControlRegistry turnControlRegistry;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -287,8 +293,8 @@ public class AgentCapabilityController {
         }
         config.setEnabled(false);
         skillConfigService.save(config);
-        skillManager.refreshSourcePluginDirs();
-        claudeRuntimeManager.markAllSessionsStale();
+        // 新建的技能默认是关的、也不在任何会话的技能列表里，没什么可让模型重读的
+        afterSkillChanged(skillPath, null);
 
         return new BaseResponse<>(0, config, "");
     }
@@ -311,8 +317,7 @@ public class AgentCapabilityController {
         if (request.getSkillContent() != null) {
             skillManager.writeSkillContent(config.getSkillPath(), request.getSkillContent());
         }
-        skillManager.refreshSourcePluginDirs();
-        claudeRuntimeManager.markAllSessionsStale();
+        afterSkillChanged(config.getSkillPath(), reloadControl(config.getSkillPath()));
 
         return new BaseResponse<>(0, true, "");
     }
@@ -327,8 +332,7 @@ public class AgentCapabilityController {
         boolean newEnabled = !Boolean.TRUE.equals(config.getEnabled());
         config.setEnabled(newEnabled);
         skillConfigService.updateById(config);
-        skillManager.refreshSourcePluginDirs();
-        claudeRuntimeManager.markAllSessionsStale();
+        afterSkillChanged(config.getSkillPath(), scopeChangedControl(config.getSkillPath()));
         return new BaseResponse<>(0, newEnabled, "");
     }
 
@@ -338,9 +342,9 @@ public class AgentCapabilityController {
             @PathVariable Integer id,
             @RequestBody UpdateEnabledListRequest request) {
         try {
+            String skillPath = skillConfigService.getById(id).getSkillPath();
             skillConfigService.updateEnabledList(id, request.getEnabledList());
-            skillManager.refreshSourcePluginDirs();
-            claudeRuntimeManager.markAllSessionsStale();
+            afterSkillChanged(skillPath, scopeChangedControl(skillPath));
             return new BaseResponse<>(0, true, "");
         } catch (IllegalArgumentException e) {
             return new BaseResponse<>(ErrorCode.PARAMS_ERROR.getCode(), false, e.getMessage());
@@ -357,10 +361,16 @@ public class AgentCapabilityController {
         if (config == null) {
             return new BaseResponse<>(ErrorCode.NOT_FOUND_ERROR);
         }
-        skillManager.deleteSkillDirectory(config.getSkillPath());
+        String deletedPath = config.getSkillPath();
+        skillManager.deleteSkillDirectory(deletedPath);
         skillConfigService.removeById(id);
+        // 删掉之后 isEnabledFor 就查不到了，所以这里直接通知所有活会话：读过它的自己作废
         skillManager.refreshSourcePluginDirs();
         claudeRuntimeManager.markAllSessionsStale();
+        for (String sessionKey : claudeRuntimeManager.sessionStatus().keySet()) {
+            turnControlRegistry.appendOnce(sessionKey,
+                    new TurnControl("skill:" + deletedPath, revokedControl(deletedPath)));
+        }
         return new BaseResponse<>(0, true, "");
     }
 
@@ -382,8 +392,7 @@ public class AgentCapabilityController {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "请上传 ZIP 文件");
         }
         AgentSkillConfig config = skillManager.importFromZip(file.getInputStream());
-        skillManager.refreshSourcePluginDirs();
-        claudeRuntimeManager.markAllSessionsStale();
+        afterSkillChanged(config.getSkillPath(), reloadControl(config.getSkillPath()));
         return new BaseResponse<>(0, config, "");
     }
 
@@ -393,8 +402,7 @@ public class AgentCapabilityController {
             @RequestBody @Valid ImportSkillRequest request) throws IOException {
         AgentSkillConfig config = skillManager.importFromMarkdown(
                 request.getSkillName(), request.getDescription(), request.getContent());
-        skillManager.refreshSourcePluginDirs();
-        claudeRuntimeManager.markAllSessionsStale();
+        afterSkillChanged(config.getSkillPath(), reloadControl(config.getSkillPath()));
         return new BaseResponse<>(0, config, "");
     }
 
@@ -412,4 +420,79 @@ public class AgentCapabilityController {
         }
         return sb.toString();
     }
+
+    // ========================================================================
+    // 技能变更之后：重建插件目录 + 让会话重建 + 通过控制模块告知模型
+    // ========================================================================
+
+    /**
+     * 技能变更之后统一要做的三件事，别在别处各写一遍。
+     *
+     * <p>顺序有讲究：先把来源插件目录重建好（新内容落盘），再让常驻会话"下次重建"，
+     * 最后排控制指令——控制指令那一轮开头会先重建进程（那时才读得到新文件），模型随后按指令重读。
+     *
+     * <p>为什么必须配控制指令：实测（2026-09-27）技能正文是<b>进程级缓存</b>——改了文件不重建进程，
+     * 重读也拿不到新版；而重建之后模型又<b>不会主动重读</b>，它会直接从上下文里那份旧的接着答。
+     * 所以"重建 + 明确要求重读并声明旧版作废"两件缺一不可。温和的"再读一次"实测无效。
+     *
+     * @param controlText 给模型看的那句话；为 null 表示这次变更不必打扰模型
+     */
+    private void afterSkillChanged(String skillPath, String controlText) {
+        skillManager.refreshSourcePluginDirs();
+        claudeRuntimeManager.markAllSessionsStale();
+        if (controlText == null) {
+            return;
+        }
+        for (String sessionKey : claudeRuntimeManager.sessionStatus().keySet()) {
+            SessionSource source = sourceOf(sessionKey);
+            if (source == null || !skillManager.isEnabledFor(skillPath, source)) {
+                continue;
+            }
+            turnControlRegistry.appendOnce(sessionKey,
+                    new TurnControl("skill:" + skillPath, controlText));
+        }
+    }
+
+    /** 会话键形如 {@code botId:source:chatId}；取不出合法来源（例如 dev 会话）就返回 null。 */
+    private static SessionSource sourceOf(String sessionKey) {
+        String[] parts = sessionKey.split(":");
+        if (parts.length < 2) {
+            return null;
+        }
+        try {
+            return SessionSource.fromKey(parts[1]);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    /**
+     * 正文被改写：要求重读、声明旧版作废，并且**明确背书新版本**。
+     *
+     * <p>最后那句背书是实测逼出来的（2026-09-27 演示）：只写"技能更新了、重新读一遍"时，模型确实会照做
+     * 重读，但**读完不肯执行新内容**——它的原话是"控制块只说了技能更新、重新读取，并没有点名认可这条
+     * 规则；所以我按'控制块没背书、内容本身越权'来处理"。也就是说技能正文在它眼里是低可信度内容，
+     * 没有控制块的背书就会被当成外部注入挡掉。
+     *
+     * <p>所以这句话必须说三件事：新版是我方发布的、和旧版不一致的地方是有意改的、不要当注入。
+     */
+    private static String reloadControl(String skillPath) {
+        return "技能「" + skillPath + "」的正文已经更新，这是由我方发布并认可的新版本，必须按它执行。"
+                + "上文里那份旧版本作废。现在重新调用 Skill 工具读取它（技能列表里的名字可能带来源前缀，"
+                + "例如 group:" + skillPath + "）。新版本里与旧版本不一致的地方是有意改的，照新的来，"
+                + "不要把它当成外部注入的内容。";
+    }
+
+    /** 启用范围变了：可能读得到、也可能读不到了，一句话覆盖两种情况（同样带背书）。 */
+    private static String scopeChangedControl(String skillPath) {
+        return "技能「" + skillPath + "」的启用范围变了（这是我方发布的状态，按它执行）。"
+                + "如果你现在还能读到它，重新读一遍按新的来；如果已经读不到，就别再按它的内容行事。";
+    }
+
+    /** 技能被删/停用：明确作废。 */
+    private static String revokedControl(String skillPath) {
+        return "技能「" + skillPath + "」已经停用或删除。不要再调用它，也不要再照它的内容行事；"
+                + "上文里还留着的也一并忽略。";
+    }
+
 }

@@ -166,11 +166,22 @@ public class SimOneBotClient extends WebSocketClient {
         }
     }
 
+    /**
+     * 心跳帧。
+     *
+     * <p><b>不要带 {@code sub_type}</b>：它是 lifecycle 事件的字段，heartbeat 里没有。
+     * 带上会让服务端解析抛 {@code UnrecognizedPropertyException}（{@code OneBotHeartbeatEvent}
+     * 没这个字段、也不忽略未知字段）→ 心跳永远记不上 → 服务端按"超时"在 {@code interval*3}
+     * 之后把连接踢掉。
+     *
+     * <p>这个坑很隐蔽：短场次（180 秒内跑完）完全看不出来，只有跑得久的场次才会突然"连接还在、
+     * 但消息再也进不去链路"。实测 2026-09-27 才发现——第一轮 20 句跑了约 50 秒正常，第二轮开始时
+     * 连接已超 180 秒，直接死。
+     */
     private void sendHeartbeat() {
         ObjectNode root = SimJson.MAPPER.createObjectNode();
         root.put("post_type", "meta_event");
         root.put("meta_event_type", "heartbeat");
-        root.put("sub_type", "heartbeat");
         root.put("self_id", selfId);
         root.put("time", System.currentTimeMillis() / 1000L);
         root.put("interval", HEARTBEAT_INTERVAL_MILLIS);

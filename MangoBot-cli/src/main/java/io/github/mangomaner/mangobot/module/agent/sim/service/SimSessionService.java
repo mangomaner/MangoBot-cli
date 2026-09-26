@@ -10,6 +10,7 @@ import io.github.mangomaner.mangobot.module.agent.runtime.claude.ClaudeRuntimePr
 import io.github.mangomaner.mangobot.module.agent.sim.harness.SimBotProfile;
 import io.github.mangomaner.mangobot.module.agent.sim.harness.SimFrames;
 import io.github.mangomaner.mangobot.module.agent.sim.harness.SimImageIndex;
+import io.github.mangomaner.mangobot.module.agent.sim.harness.SimMediaServer;
 import io.github.mangomaner.mangobot.module.agent.sim.harness.SimOneBotClient;
 import io.github.mangomaner.mangobot.module.agent.sim.harness.SimSend;
 import io.github.mangomaner.mangobot.module.agent.sim.model.domain.SimMessage;
@@ -17,6 +18,7 @@ import io.github.mangomaner.mangobot.module.agent.sim.model.domain.SimSession;
 import io.github.mangomaner.mangobot.module.agent.sim.review.SimReviewer;
 import io.github.mangomaner.mangobot.system.mapper.agent.SimMessageMapper;
 import io.github.mangomaner.mangobot.system.mapper.agent.SimSessionMapper;
+import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -29,6 +31,7 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * 模拟对话的编排：开局、喂一句、读回来、打分、落库。
@@ -73,8 +76,44 @@ public class SimSessionService {
     private final ClaudeRuntimeProperties properties;
     private final ObjectMapper objectMapper;
 
-    /** 当前这一场；同一时刻最多一个。 */
-    private final Map<Integer, ActiveSim> active = new ConcurrentHashMap<>();
+    /**
+     * 当前正在驱动的那一场；同一时刻最多一个。
+     *
+     * <p>它只回答"现在喂的是哪一场"，<b>不代表连接的生命周期</b>——连接见 {@link #client}。
+     */
+    private final AtomicReference<Integer> currentSession = new AtomicReference<>();
+
+    /**
+     * 模拟台唯一的那条 OneBot 连接，懒建、复用、只在应用关闭时收。
+     *
+     * <p><b>为什么不做成"一场一条"</b>：实测（2026-09-27）同一个 JVM 里，重启后第一次 {@code start}
+     * 正常、紧接着的第二次 {@code start} 必挂——客户端连得上、诊断口也报连接在，但那一轮永远不结束
+     * （155 秒超时）。原因就是"关掉上一场、立刻用同一个 self_id 重连"这个快节奏重连。
+     * 连接是基础设施，场次是数据，把两者绑在一起就会踩这个坑。
+     */
+    private volatile SimOneBotClient client;
+
+    /** 图片源：让模型真的看到像素，见 {@link SimMediaServer}。懒建、长活。 */
+    private volatile SimMediaServer mediaServer;
+
+    /** 每条场次驱动轮的起始时刻，用于算 at_ms。 */
+    private volatile long sessionStartedAtMillis = System.currentTimeMillis();
+
+    /** 会话内的下一个顺序号。 */
+    private final AtomicInteger nextSeq = new AtomicInteger(1);
+
+    /**
+     * 下一个 OneBot message_id。<b>同一个 JVM 内只增不减，绝不按场次重置</b>。
+     *
+     * <p>踩过的坑（2026-09-27，找了很久）：原来每开一场就重置成 1，于是第二场的消息 id 与第一场
+     * 完全重复。而 {@code QqReplyHandler}（{@code @PluginPriority(0)}）里有按 message_id 的去重窗口，
+     * 重复的直接 {@code return}——<b>消息永远到不了收件箱，那一轮永远不开始</b>，而且一声不吭
+     * （不打日志、不报错），只表现为"连接在、say 却 155 秒超时"。
+     *
+     * <p>OneBot 的 message_id 本来就是全局唯一的，复用 id 是我方违规。所以这里跟会话无关：
+     * 它是"这条连接发过的第几条消息"，不是"这一场的第几条"（后者是 {@link #nextSeq}）。
+     */
+    private final AtomicInteger nextMessageId = new AtomicInteger(1);
 
     public SimSessionService(SimSessionMapper sessionMapper, SimMessageMapper messageMapper,
                              SimReviewer reviewer, ClaudeRuntimeManager runtimeManager,
@@ -91,9 +130,8 @@ public class SimSessionService {
     // 开局
     // ========================================================================
 
-    /** 开一场模拟：建虚拟连接、播种白名单、把上一场的对话上下文清掉、落一行 running 的会话。 */
+    /** 开一场模拟：确保连接在、播种白名单、把上一场的对话上下文清掉、落一行 running 的会话。 */
     public SimSession start(String title, String personaLabel, String seedRef) {
-        closeActive();
 
         // 没有专属配置行的 self_id 会被 MangoEventPublisher 的白名单整条拦掉，一条也喂不进去
         SimBotProfile.seedWhitelist();
@@ -103,17 +141,7 @@ public class SimSessionService {
         // resetSession = 关进程 + 删该会话的 config 目录，正好是"这一场从零开始"。
         runtimeManager.resetSession(SimBotProfile.sessionKey());
 
-        SimOneBotClient client = new SimOneBotClient(
-                URI.create(MOCK_SERVER_URI), SimBotProfile.SELF_ID, SimImageIndex.of(List.of()));
-        try {
-            if (!client.connectBlocking(CONNECT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
-                throw new IllegalStateException("连不上 mock OneBot 服务端：" + MOCK_SERVER_URI
-                        + "（检查 onebot_config 里 name=mock 那条是否启用）");
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("连 mock 服务端时被中断", e);
-        }
+        ensureClient();
 
         SimSession session = new SimSession();
         session.setTitle(title == null || title.isBlank() ? "未命名模拟" : title);
@@ -125,7 +153,10 @@ public class SimSessionService {
         session.setStatus(STATUS_RUNNING);
         sessionMapper.insert(session);
 
-        active.put(session.getId(), new ActiveSim(client));
+        currentSession.set(session.getId());
+        sessionStartedAtMillis = System.currentTimeMillis();
+        // seq 是"这一场的第几条"，按场重置；messageId 是"这条连接的第几条"，绝不重置（见字段注释）
+        nextSeq.set(1);
         log.info("模拟对话已开局：id={} sessionKey={} persona={}",
                 session.getId(), SimBotProfile.sessionKey(), personaLabel);
         return session;
@@ -144,7 +175,18 @@ public class SimSessionService {
      * @return bot 这一轮真正发出去的消息（可能为空＝它选择不说话，这是正常结果）
      */
     public List<SimSend> say(Integer sessionId, String speaker, Long qq, String text) {
-        ActiveSim sim = requireActive(sessionId);
+        return say(sessionId, speaker, qq, text, null, 0);
+    }
+
+    /**
+     * 以某个群友的身份发一条（可带图），然后等 bot 把这一轮说完。
+     *
+     * @param imageFileId 图片的 fileId（{@code bot_files} 里真实存在的）；null 表示纯文字
+     * @param imageSubType 1/11 是表情包，其余当普通图；只在带图时有意义
+     */
+    public List<SimSend> say(Integer sessionId, String speaker, Long qq, String text,
+                             String imageFileId, int imageSubType) {
+        requireActive(sessionId);
         SimSession session = requireSession(sessionId);
 
         String sessionKey = new ChatTarget(SimBotProfile.SELF_ID, SessionSource.GROUP,
@@ -155,13 +197,26 @@ public class SimSessionService {
         long waitMillis = (properties.getTurnTimeoutSeconds() + 5L) * 1000L
                 + TURN_WAIT_MARGIN_MILLIS;
 
-        appendPeerMessage(session, sim, nickname, memberQq, text);
+        boolean withImage = imageFileId != null && !imageFileId.isBlank();
+        String recorded = withImage
+                ? (text == null || text.isBlank() ? "" : text + " ") + "[图片#" + imageFileId + "]"
+                : text;
+        appendPeerMessage(session, nickname, memberQq, recorded);
 
         // 必须在发帧之前登记：晚一步就会错过这一轮的结束信号
         TurnSignal.expect(sessionKey);
-        sim.client().sendRaw(SimFrames.groupMessage(SimBotProfile.SELF_ID, SimBotProfile.GROUP_ID,
-                memberQq, nickname, text, sim.nextMessageId().getAndIncrement(),
-                System.currentTimeMillis() / 1000L));
+        int messageId = nextMessageId.getAndIncrement();
+        long epoch = System.currentTimeMillis() / 1000L;
+        String frame;
+        if (withImage) {
+            frame = SimFrames.groupMessageWithImage(SimBotProfile.SELF_ID, SimBotProfile.GROUP_ID,
+                    memberQq, nickname, text, imageFileId,
+                    ensureMediaServer().urlOf(imageFileId), imageSubType, messageId, epoch);
+        } else {
+            frame = SimFrames.groupMessage(SimBotProfile.SELF_ID, SimBotProfile.GROUP_ID,
+                    memberQq, nickname, text, messageId, epoch);
+        }
+        client.sendRaw(frame);
 
         Optional<String> assistantText;
         try {
@@ -170,14 +225,14 @@ public class SimSessionService {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("等这一轮结束时被中断", e);
         }
-        List<SimSend> sends = sim.client().drainSends();
+        List<SimSend> sends = client.drainSends();
 
         if (assistantText.isEmpty()) {
             throw new IllegalStateException("这一句发出后 " + waitMillis
                     + "ms 内没有任何轮次结束——消息没进链路？（检查 mock 服务端与白名单播种）");
         }
 
-        appendBotMessages(session, sim, sends, assistantText.get());
+        appendBotMessages(session, sends, assistantText.get());
         return sends;
     }
 
@@ -217,8 +272,9 @@ public class SimSessionService {
             sessionMapper.updateById(session);
             return session;
         } finally {
-            // 这场到此为止：把连接收掉，腾出唯一那个位置
-            closeActive();
+            // 这场到此为止：只放下"当前场次"这个标记，**连接留着**——下一场还要用它，
+            // 重连才是真正会出问题的动作（见 client 字段的注释）
+            currentSession.set(null);
         }
     }
 
@@ -247,6 +303,75 @@ public class SimSessionService {
     // 内部
     // ========================================================================
 
+    /**
+     * 当前挂着活连接的会话 id（同一时刻最多一个）。
+     *
+     * <p>给诊断用：出过"start 成功但 say 立刻说连接已收"的怪事，而这件事光看接口返回看不出来，
+     * 必须能直接问一句"你手上到底有没有这场"。以后凡是这类"两边状态不一致"的怀疑，先看这里。
+     */
+    public List<Integer> activeSessionIds() {
+        Integer current = currentSession.get();
+        return current == null ? List.of() : List.of(current);
+    }
+
+    /** 这个会话在不在 active 里、它的连接是不是还开着。 */
+    public Optional<String> activeState(Integer sessionId) {
+        if (!sessionId.equals(currentSession.get())) {
+            return Optional.empty();
+        }
+        SimOneBotClient c = client;
+        return Optional.of(c != null && c.isOpen() ? "open" : "closed");
+    }
+
+    /** 懒建图片源；已经起着就直接用。 */
+    private synchronized SimMediaServer ensureMediaServer() {
+        SimMediaServer existing = mediaServer;
+        if (existing != null) {
+            return existing;
+        }
+        try {
+            SimMediaServer created = SimMediaServer.start();
+            mediaServer = created;
+            return created;
+        } catch (Exception e) {
+            throw new IllegalStateException("启动模拟图片服务失败", e);
+        }
+    }
+
+    /** 懒建连接；已经连着就直接用。 */
+    private synchronized SimOneBotClient ensureClient() {
+        SimOneBotClient existing = client;
+        if (existing != null && existing.isOpen()) {
+            return existing;
+        }
+        SimOneBotClient created = new SimOneBotClient(
+                URI.create(MOCK_SERVER_URI), SimBotProfile.SELF_ID, SimImageIndex.of(List.of()));
+        try {
+            if (!created.connectBlocking(CONNECT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
+                throw new IllegalStateException("连不上 mock OneBot 服务端：" + MOCK_SERVER_URI
+                        + "（检查 onebot_config 里 name=mock 那条是否启用）");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("连 mock 服务端时被中断", e);
+        }
+        client = created;
+        log.info("模拟台连接已建立（长活，不随场次开关）：selfId={}", SimBotProfile.SELF_ID);
+        return created;
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        SimOneBotClient c = client;
+        if (c != null) {
+            c.shutdown();
+        }
+        SimMediaServer m = mediaServer;
+        if (m != null) {
+            m.stop();
+        }
+    }
+
     private SimSession requireSession(Integer sessionId) {
         SimSession session = sessionMapper.selectById(sessionId);
         if (session == null) {
@@ -255,56 +380,45 @@ public class SimSessionService {
         return session;
     }
 
-    private ActiveSim requireActive(Integer sessionId) {
-        ActiveSim sim = active.get(sessionId);
-        if (sim == null) {
-            throw new IllegalStateException("这场模拟的连接已经收了（只有正在对练的那一场能继续喂）："
-                    + sessionId);
+    /** 这一场是不是正在驱动的那一场。 */
+    private void requireActive(Integer sessionId) {
+        if (!sessionId.equals(currentSession.get())) {
+            throw new IllegalStateException("只有正在对练的那一场能继续喂："
+                    + sessionId + "，当前是 " + currentSession.get());
         }
-        return sim;
-    }
-
-    /** 收掉当前这一场与残留连接。没有残留时是空操作。 */
-    private void closeActive() {
-        for (Map.Entry<Integer, ActiveSim> entry : active.entrySet()) {
-            try {
-                entry.getValue().client().shutdown();
-                log.info("收掉上一场模拟的连接：id={}", entry.getKey());
-            } catch (Exception e) {
-                log.warn("收模拟连接时出错：id={}", entry.getKey(), e);
-            }
-            active.remove(entry.getKey());
+        if (client == null || !client.isOpen()) {
+            throw new IllegalStateException("模拟台的连接没开着");
         }
     }
 
-    private void appendPeerMessage(SimSession session, ActiveSim sim,
-                                   String nickname, long qq, String text) {
+
+    private void appendPeerMessage(SimSession session, String nickname, long qq, String text) {
         SimMessage message = new SimMessage();
         message.setSessionId(session.getId());
-        message.setSeq(sim.nextSeq().getAndIncrement());
+        message.setSeq(nextSeq.getAndIncrement());
         message.setSpeaker(nickname);
         message.setSenderId(String.valueOf(qq));
         message.setRole("peer");
         message.setKind("text");
         message.setContent(text);
-        message.setAtMs(sim.elapsedMillis());
+        message.setAtMs(System.currentTimeMillis() - sessionStartedAtMillis);
         message.setCreateTime(new Date());
         messageMapper.insert(message);
     }
 
-    private void appendBotMessages(SimSession session, ActiveSim sim, List<SimSend> sends,
+    private void appendBotMessages(SimSession session, List<SimSend> sends,
                                    String assistantText) {
         for (SimSend send : sends) {
             SimMessage message = new SimMessage();
             message.setSessionId(session.getId());
-            message.setSeq(sim.nextSeq().getAndIncrement());
+            message.setSeq(nextSeq.getAndIncrement());
             message.setSpeaker("bot");
             message.setSenderId(String.valueOf(SimBotProfile.SELF_ID));
             message.setRole("bot");
             message.setKind(send.kind());
             message.setContent(send.payload());
             message.setReplyTo(send.replyToId());
-            message.setAtMs(sim.elapsedMillis());
+            message.setAtMs(System.currentTimeMillis() - sessionStartedAtMillis);
             message.setCreateTime(new Date());
             messageMapper.insert(message);
         }
@@ -317,13 +431,13 @@ public class SimSessionService {
             // 结论整个偏掉。**沉默必须能被读成沉默。**
             SimMessage message = new SimMessage();
             message.setSessionId(session.getId());
-            message.setSeq(sim.nextSeq().getAndIncrement());
+            message.setSeq(nextSeq.getAndIncrement());
             message.setSpeaker("bot");
             message.setSenderId(String.valueOf(SimBotProfile.SELF_ID));
             message.setRole("bot");
             message.setKind(KIND_NOTE);
             message.setContent(assistantText.trim());
-            message.setAtMs(sim.elapsedMillis());
+            message.setAtMs(System.currentTimeMillis() - sessionStartedAtMillis);
             message.setCreateTime(new Date());
             messageMapper.insert(message);
         }
@@ -359,16 +473,4 @@ public class SimSessionService {
         return sb.toString();
     }
 
-    /** 一场正在对练的模拟所持有的运行时状态。 */
-    private record ActiveSim(SimOneBotClient client, long startedAtMillis,
-                             AtomicInteger nextMessageId, AtomicInteger nextSeq) {
-
-        ActiveSim(SimOneBotClient client) {
-            this(client, System.currentTimeMillis(), new AtomicInteger(1), new AtomicInteger(1));
-        }
-
-        long elapsedMillis() {
-            return System.currentTimeMillis() - startedAtMillis;
-        }
-    }
 }
