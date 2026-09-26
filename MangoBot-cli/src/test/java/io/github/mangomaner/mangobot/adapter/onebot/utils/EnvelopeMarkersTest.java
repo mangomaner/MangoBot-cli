@@ -19,6 +19,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>它们不是装饰，是模型能不能"引用某句"的全部依据：没有行尾那个 id，模型就只能引用刚喂进来的
  * 最后一条——而实测真人引用紧邻上一条只占 9.7%，绝大多数引用指向被刷上去好几句的某条。
  * 所以这里把格式钉住，改坏了要立刻红。
+ *
+ * <p>只管这两个记号。各类消息段本身的正文渲染（位置、卡片等）在 {@link MessageLexerRenderTest}。
  */
 class EnvelopeMarkersTest {
 

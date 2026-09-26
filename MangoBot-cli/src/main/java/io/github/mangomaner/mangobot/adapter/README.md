@@ -32,9 +32,10 @@ adapter/
     │   └── outbound/                      # 出站消息处理
     │       ├── send/                      # 发送消息
     │       │   └── OneBotApiService.java
-    │       └── build_sending_message/     # 构建消息
+    │       └── build_sending_message/     # 构建消息（纯函数，不碰网络）
     │           ├── OneBotMessageBuilder.java
-    │           └── OneBotSendingMessage.java
+    │           ├── OneBotSendingMessage.java
+    │           └── LocationCard.java      # 腾讯地图位置卡片段工厂（发位置只有这一条路）
     ├── model/                             # 数据模型
     │   ├── domain/
     │   │   └── OneBotConfig.java          # 配置实体
@@ -89,10 +90,18 @@ adapter/
     │   ├── OneBotConfigService.java       # 配置服务接口
     │   └── impl/
     │       └── OneBotConfigServiceImpl.java
-    └── utils/                             # 工具类
-        ├── MessageParser.java             # 消息解析器
-        └── OneBotMessageFileProcessor.java # 文件处理器
+    ├── util/                              # 工具类（单数，只有一条）
+    │   └── ConnectionUrlUtil.java         # WS 连接 URL 解析
+    └── utils/                             # 工具类（复数）
+        ├── ChatEnvelope.java              # 信封模板 [时间] 名字(qq): 正文 [消息#id]
+        ├── MessageLexer.java              # segment ↔ 模型字面格式的双向转换（含位置/卡片渲染）
+        ├── MessageLexerException.java     # 字面格式非法
+        ├── OneBotMessageParser.java       # 消息解析器（@Component：落库 parse_message + 引用/转发展开）
+        └── OneBotMessageFileProcessor.java # 文件处理器（@Component：下载落库 + VLM 描述）
 ```
+
+> ⚠️ `util/`（单数）与 `utils/`（复数）**只差一个字母但内容不同**，`utils/` 里还混着两个带 Spring 注解的业务组件
+> （`OneBotMessageParser`、`OneBotMessageFileProcessor`）而不是纯工具。这是历史遗留，暂时照实记录，动它需要单独一次重构。
 
 ## 核心组件
 
@@ -324,6 +333,8 @@ public class OneBotEventDeserializer extends StdDeserializer<OneBotEvent> {
     @JsonSubTypes.Type(value = JsonSegment.class, name = "json"),
     @JsonSubTypes.Type(value = ForwardSegment.class, name = "forward"),
     @JsonSubTypes.Type(value = NodeSegment.class, name = "node"),
+    @JsonSubTypes.Type(value = PokeSegment.class, name = "poke"),
+    @JsonSubTypes.Type(value = LocationSegment.class, name = "location"),
     // ... 更多类型
 })
 public abstract class OneBotMessageSegment {
@@ -442,7 +453,50 @@ public class MessageParser {
     private String parseJsonSegment(JsonSegment segment);      // JSON
     private String parseForwardSegment(ForwardSegment segment, Long botId);  // 转发
     private String parseReplySegment(ReplySegment segment, Long botId);      // 回复
+    // 位置：直接复用 MessageLexer.renderLocationText，保证落库的 parse_message 与信封渲染同格式
 }
+```
+
+### 历史消息（群 / 私聊）
+
+`get_group_msg_history` / `get_friend_msg_history` 两个接口逐字段同构，只有目标参数不同（`group_id` / `user_id`），
+都返回 `data.messages`（OB11Message 数组）。
+
+```java
+// MangoOneBotApi（便捷重载）
+List<OneBotGroupMessageEvent>   getGroupMsgHistory(long botId, long groupId, int count);
+List<OneBotPrivateMessageEvent> getFriendMsgHistory(long botId, long userId, int count);
+
+// 完整签名：messageSeq / count / reverseOrder
+List<OneBotGroupMessageEvent>   getGroupMsgHistory(long botId, long groupId, Integer messageSeq, int count, boolean reverseOrder);
+List<OneBotPrivateMessageEvent> getFriendMsgHistory(long botId, long userId, Integer messageSeq, int count, boolean reverseOrder);
+```
+
+> ⚠️ **`message_seq` 的方向怪癖**：不传时从最新往回取；一旦传了具体序号，NapCat 实际是从该条**往后**取，
+> 而不是往回翻页；`reverse_order` 只翻转返回列表、不改变查询方向（社区反馈，非官方文档）。
+> 想往前翻历史，目前只能「不传 messageSeq + 加大 count」。
+
+### 发送位置（只能走 Ark 卡片）
+
+```java
+// 群聊 / 私聊
+MangoOneBotApi.sendGroupLocation(botId, groupId, lat, lng, name, address);
+MangoOneBotApi.sendPrivateLocation(botId, userId, lat, lng, name, address);
+```
+
+**不要用 OneBot 的 `location` 段发位置。** 协议上它有定义（`{"type":"location","data":{"lat","lon"}}`），
+NapCat 的接口文档也认，但实测发出去 QQ 不认：NapCat 4.15.1 把它转成 `ElementType=28`，自己日志里标
+「未实现」，客户端显示「该消息类型暂不支持查看」。
+
+真人发的位置，在 NapCat 里**根本不是 `location` 段**，而是腾讯地图的 Ark 卡片
+（`app=com.tencent.map`、`view=LocationShare`、坐标在 `meta["Location.Search"]` 里）。
+发送路径就照这个结构拼（`LocationCard`），字段是逐字段从真实消息抄的，两个易错点：
+
+- 坐标键是 **`lng`**，不是 `location` 段里的 `lon`；
+- `meta` 的键是带点的字面量 **`"Location.Search"`**，不是嵌套对象。
+
+`LocationSegment` 仍然保留，但**只用于接收**——别的 OneBot 实现（go-cqhttp / Lagrange）会发这种段，
+渲染成 `[位置: 标题 (纬度,经度)]`。收到的腾讯地图 Ark（`json` 段）也渲染成同一种形态。
 ```
 
 ---

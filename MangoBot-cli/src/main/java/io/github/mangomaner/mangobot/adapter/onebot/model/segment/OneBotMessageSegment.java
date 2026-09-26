@@ -26,18 +26,10 @@ import lombok.Data;
     @JsonSubTypes.Type(value = ShareSegment.class, name = "share"),
     @JsonSubTypes.Type(value = NodeSegment.class, name = "node"),
     @JsonSubTypes.Type(value = ForwardSegment.class, name = "forward"),
-    @JsonSubTypes.Type(value = PokeSegment.class, name = "poke")
+    @JsonSubTypes.Type(value = PokeSegment.class, name = "poke"),
+    @JsonSubTypes.Type(value = LocationSegment.class, name = "location")
 })
 @Data
 public abstract class OneBotMessageSegment {
     private String type;
 }
-
-//    @JsonSubTypes.Type(value = RpsSegment.class, name = "rps"),
-//    @JsonSubTypes.Type(value = DiceSegment.class, name = "dice"),
-//    @JsonSubTypes.Type(value = PokeSegment.class, name = "poke"),
-//    @JsonSubTypes.Type(value = AnonymousSegment.class, name = "anonymous"),
-//    @JsonSubTypes.Type(value = ContactSegment.class, name = "contact"),
-//    @JsonSubTypes.Type(value = LocationSegment.class, name = "location"),
-//    @JsonSubTypes.Type(value = MusicSegment.class, name = "music"),
-//    @JsonSubTypes.Type(value = XmlSegment.class, name = "xml"),

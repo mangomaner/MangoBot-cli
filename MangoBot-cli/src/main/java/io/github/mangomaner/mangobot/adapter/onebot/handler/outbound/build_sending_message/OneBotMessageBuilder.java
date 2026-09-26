@@ -11,6 +11,11 @@ import java.util.List;
  * 2. 合并转发节点（引用已有信息）和合并转发节点（自定义内容）只能单独使用，但可以添加多次
  * 3. 回复只能添加一次，且在最开头添加
  * 4. 添加文本不能连续添加，中间必须间隔东西
+ *
+ * <p><b>发位置不在这里。</b>OneBot 的 {@code location} 段实测在当前 NapCat/QQ 上发出去客户端不认
+ * （见同包的 {@link LocationCard}），位置只能发成腾讯地图 Ark 卡片；那个形状要带 bot 号与自己所在的
+ * 群/好友号，而本 Builder 是无上下文的，所以挪到了
+ * {@code MangoOneBotApi.sendGroupLocation} / {@code sendPrivateLocation}。
  */
 public class OneBotMessageBuilder {
 
@@ -299,26 +304,6 @@ public class OneBotMessageBuilder {
 //    data.setData(jsonData);
 //    segment.setData(data);
 //    segment.setType("json");
-//    segments.add(segment);
-//    return this;
-//}
-//
-///**
-// * 发送位置
-// * @param lat 纬度
-// * @param lon 经度
-// * @param title 标题
-// * @param content 内容描述
-// */
-//public MessageBuilder location(String lat, String lon, String title, String content) {
-//    LocationSegment segment = new LocationSegment();
-//    LocationSegment.LocationData data = new LocationSegment.LocationData();
-//    data.setLat(lat);
-//    data.setLon(lon);
-//    data.setTitle(title);
-//    data.setContent(content);
-//    segment.setData(data);
-//    segment.setType("location");
 //    segments.add(segment);
 //    return this;
 //}

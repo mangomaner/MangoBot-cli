@@ -2,6 +2,7 @@ package io.github.mangomaner.mangobot.api;
 
 import io.github.mangomaner.mangobot.adapter.onebot.handler.outbound.build_sending_message.OneBotSendingMessage;
 import io.github.mangomaner.mangobot.events.onebot.message.OneBotGroupMessageEvent;
+import io.github.mangomaner.mangobot.events.onebot.message.OneBotPrivateMessageEvent;
 import io.github.mangomaner.mangobot.adapter.onebot.handler.outbound.send.OneBotApiService;
 import io.github.mangomaner.mangobot.adapter.onebot.model.vo.*;
 
@@ -68,6 +69,34 @@ public class MangoOneBotApi {
     public static Void sendPrivatePoke(long botId, long userId) {
         checkService();
         return service.sendPrivatePoke(botId, userId);
+    }
+
+    /**
+     * 发送位置 (群聊)。走腾讯地图 Ark 卡片，不是 OneBot 的 {@code location} 段——
+     * 后者在当前 NapCat/QQ 上发出去客户端显示「该消息类型暂不支持查看」。
+     *
+     * @param botId   机器人QQ号
+     * @param groupId 群号
+     * @param lat     纬度
+     * @param lng     经度
+     * @param name    地点名；空则显示「我在这」
+     * @param address 详细地址；可空
+     */
+    public static MessageId sendGroupLocation(long botId, long groupId, String lat, String lng,
+                                              String name, String address) {
+        checkService();
+        return service.sendGroupLocation(botId, groupId, lat, lng, name, address);
+    }
+
+    /**
+     * 发送位置 (私聊)。参数语义与 {@link #sendGroupLocation} 一致。
+     *
+     * @param userId 好友QQ号
+     */
+    public static MessageId sendPrivateLocation(long botId, long userId, String lat, String lng,
+                                                String name, String address) {
+        checkService();
+        return service.sendPrivateLocation(botId, userId, lat, lng, name, address);
     }
 
     /**
@@ -140,6 +169,56 @@ public class MangoOneBotApi {
     public static List<OneBotGroupMessageEvent> getForwardMsg(long botId, String id) {
         checkService();
         return service.getForwardMsg(botId, id);
+    }
+
+    /**
+     * 获取群历史消息 (从最新往回取 count 条)
+     *
+     * @param botId   机器人QQ号
+     * @param groupId 群号
+     * @param count   要取多少条
+     */
+    public static List<OneBotGroupMessageEvent> getGroupMsgHistory(long botId, long groupId, int count) {
+        return getGroupMsgHistory(botId, groupId, null, count, false);
+    }
+
+    /**
+     * 获取群历史消息 (完整参数)
+     *
+     * <p><b>注意 message_seq 的方向怪癖</b>：传 null 是从最新往回取；一旦传了具体序号，NapCat 实际是
+     * <b>从该条往后</b>取而不是往回翻页，{@code reverseOrder} 只翻转返回列表、不改变查询方向
+     * （社区反馈，非官方文档）。想往前翻历史，目前只能"不传 messageSeq + 加大 count"。
+     *
+     * @param messageSeq   起始消息序号；null 表示从最新往回取
+     * @param count        要取多少条
+     * @param reverseOrder 是否把结果列表反向排序
+     */
+    public static List<OneBotGroupMessageEvent> getGroupMsgHistory(long botId, long groupId,
+                                                                  Integer messageSeq, int count, boolean reverseOrder) {
+        checkService();
+        return service.getGroupMsgHistory(botId, groupId, messageSeq, count, reverseOrder);
+    }
+
+    /**
+     * 获取私聊历史消息 (从最新往回取 count 条)
+     *
+     * @param botId  机器人QQ号
+     * @param userId 好友QQ号
+     * @param count  要取多少条
+     */
+    public static List<OneBotPrivateMessageEvent> getFriendMsgHistory(long botId, long userId, int count) {
+        return getFriendMsgHistory(botId, userId, null, count, false);
+    }
+
+    /**
+     * 获取私聊历史消息 (完整参数)
+     *
+     * <p>{@code messageSeq} 的方向怪癖与 {@link #getGroupMsgHistory} 完全一致。
+     */
+    public static List<OneBotPrivateMessageEvent> getFriendMsgHistory(long botId, long userId,
+                                                                     Integer messageSeq, int count, boolean reverseOrder) {
+        checkService();
+        return service.getFriendMsgHistory(botId, userId, messageSeq, count, reverseOrder);
     }
 
     /**

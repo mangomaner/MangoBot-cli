@@ -1,7 +1,5 @@
 package io.github.mangomaner.mangobot.adapter.onebot.utils;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.mangomaner.mangobot.adapter.onebot.model.segment.*;
 import io.github.mangomaner.mangobot.adapter.onebot.model.vo.MessageInfo;
 import io.github.mangomaner.mangobot.module.file.model.domain.BotFiles;
@@ -19,8 +17,6 @@ import java.util.Map;
 @Slf4j
 @Component
 public class OneBotMessageParser {
-
-    private final ObjectMapper objectMapper = new ObjectMapper();
 
     /** 常见 QQ 表情 id -> 名称（用于把 [表情123] 转成可读文本） */
     private static final Map<String, String> FACE_NAMES = Map.ofEntries(
@@ -83,6 +79,10 @@ public class OneBotMessageParser {
                     return parseForwardSegment((ForwardSegment) segment, botId);
                 case "reply":
                     return parseReplySegment((ReplySegment) segment, botId);
+                case "location":
+                    // 复用 MessageLexer 的那一份：落库的 parse_message 与信封里的渲染必须是同一个格式，
+                    // 各写一份就会漂移，前端消息页和模型看到的东西就对不上了。
+                    return MessageLexer.renderLocationText((LocationSegment) segment);
                 default:
                     log.warn("Unknown message segment type: {}", type);
                     return "";
@@ -225,32 +225,15 @@ public class OneBotMessageParser {
         return "[图片]";
     }
 
+    /**
+     * json 卡片：直接复用 {@link MessageLexer#renderJson}。
+     *
+     * <p>原来这里自己拼：有 {@code prompt} 用 prompt，否则把顶层字段全 dump 出来。那样有两个问题——
+     * 一是腾讯地图的位置卡片（本机实测真人发的位置全是这种 Ark）在这里只会被压成 prompt 那一行，
+     * 拿不到坐标；二是它和信封（模型实际读到的）各写一份，两边迟早漂移。
+     */
     private String parseJsonSegment(JsonSegment segment) {
-        JsonSegment.JsonData data = segment.getData();
-        if (data == null) {
-            return "";
-        }
-        String jsonStr = data.getData();
-        if (jsonStr == null || jsonStr.isEmpty()) {
-            return "";
-        }
-        
-        try {
-            JsonNode jsonNode = objectMapper.readTree(jsonStr);
-            StringBuilder result = new StringBuilder();
-            if(jsonNode.has("prompt")){
-                result.append(jsonNode.get("prompt").asText()).append(" ");
-            } else {
-                jsonNode.fields().forEachRemaining(entry -> {
-                    result.append(entry.getKey()).append(":").append(entry.getValue().asText()).append(" ");
-                });
-            }
-
-            return result.toString();
-        } catch (Exception e) {
-            log.error("Failed to parse JSON segment: {}", jsonStr, e);
-            return jsonStr;
-        }
+        return MessageLexer.renderJson(segment);
     }
 
     private String parseVideoSegment(VideoSegment segment) {

@@ -6,6 +6,7 @@ import io.github.mangomaner.mangobot.adapter.onebot.handler.inbound.json_to_even
 import io.github.mangomaner.mangobot.events.onebot.message.OneBotGroupMessageEvent;
 import io.github.mangomaner.mangobot.events.onebot.meta.OneBotHeartbeatEvent;
 import io.github.mangomaner.mangobot.adapter.onebot.model.segment.ImageSegment;
+import io.github.mangomaner.mangobot.adapter.onebot.model.segment.LocationSegment;
 import io.github.mangomaner.mangobot.adapter.onebot.model.segment.TextSegment;
 import io.github.mangomaner.mangobot.adapter.onebot.model.segment.OneBotMessageSegment;
 import io.github.mangomaner.mangobot.events.onebot.notice.OneBotGroupBanEvent;
@@ -121,6 +122,40 @@ public class EventParserTest {
         OneBotMessageSegment segment = groupEvent.getMessage().get(0);
         assertTrue(segment instanceof ImageSegment);
         assertEquals("EE47B5F4C62F0B6D91B0EF6968816493.jpg", ((ImageSegment) segment).getData().getFile());
+    }
+
+    @Test
+    public void testParseLocationMessageWithStringCoords() throws Exception {
+        String json = "{\"self_id\":1461626638,\"user_id\":2756477287,\"time\":1768132937,\"message_id\":-1514782682,\"message_seq\":11926,\"message_type\":\"group\",\"sender\":{\"user_id\":2756477287,\"nickname\":\"盲果人\",\"card\":\"盲 果 人\",\"role\":\"owner\",\"title\":\"\"},\"raw_message\":\"[CQ:location]\",\"font\":14,\"sub_type\":\"normal\",\"message\":[{\"type\":\"location\",\"data\":{\"lat\":\"39.8969426\",\"lon\":\"116.3109099\",\"title\":\"北京市海淀区\",\"content\":\"中关村大街\"}}],\"message_format\":\"array\",\"post_type\":\"message\",\"raw_pb\":\"\",\"group_id\":220264051,\"group_name\":\"6\"}";
+
+        OneBotEvent event = OneBotEventParser.parse(json);
+
+        assertTrue(event instanceof OneBotGroupMessageEvent);
+        OneBotGroupMessageEvent groupEvent = (OneBotGroupMessageEvent) event;
+        OneBotMessageSegment segment = groupEvent.getMessage().get(0);
+        assertTrue(segment instanceof LocationSegment);
+        LocationSegment.LocationData data = ((LocationSegment) segment).getData();
+        assertEquals("39.8969426", data.getLat());
+        assertEquals("116.3109099", data.getLon());
+        assertEquals("北京市海淀区", data.getTitle());
+        assertEquals("中关村大街", data.getContent());
+        assertEquals("location", segment.getType());
+    }
+
+    /**
+     * NapCat 的 schema 里 lat/lon 是 {@code string | number} 二选一，数字形态必须也接得住：
+     * 字段类型是 String，靠 Jackson 把数字读成文本。这条就是钉住这个取舍的。
+     */
+    @Test
+    public void testParseLocationMessageWithNumericCoords() throws Exception {
+        String json = "{\"self_id\":1461626638,\"user_id\":2756477287,\"time\":1768132937,\"message_id\":-1514782682,\"message_seq\":11926,\"message_type\":\"group\",\"sender\":{\"user_id\":2756477287,\"nickname\":\"盲果人\",\"card\":\"\",\"role\":\"owner\",\"title\":\"\"},\"raw_message\":\"[CQ:location]\",\"font\":14,\"sub_type\":\"normal\",\"message\":[{\"type\":\"location\",\"data\":{\"lat\":39.8969426,\"lon\":116.3109099}}],\"message_format\":\"array\",\"post_type\":\"message\",\"raw_pb\":\"\",\"group_id\":220264051,\"group_name\":\"6\"}";
+
+        OneBotEvent event = OneBotEventParser.parse(json);
+
+        OneBotGroupMessageEvent groupEvent = (OneBotGroupMessageEvent) event;
+        LocationSegment.LocationData data = ((LocationSegment) groupEvent.getMessage().get(0)).getData();
+        assertEquals("39.8969426", data.getLat());
+        assertEquals("116.3109099", data.getLon());
     }
 
     @Test
