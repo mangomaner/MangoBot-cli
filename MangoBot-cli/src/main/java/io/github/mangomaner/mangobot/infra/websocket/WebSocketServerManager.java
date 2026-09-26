@@ -1,7 +1,7 @@
 package io.github.mangomaner.mangobot.infra.websocket;
 
 import io.github.mangomaner.mangobot.adapter.onebot.model.domain.OneBotConfig;
-import io.github.mangomaner.mangobot.adapter.onebot.util.ConnectionUrlUtil;
+import io.github.mangomaner.mangobot.utils.ConnectionUrlUtil;
 import io.github.mangomaner.mangobot.adapter.model.enums.ConnectionStatus;
 import io.github.mangomaner.mangobot.system.common.ErrorCode;
 import io.github.mangomaner.mangobot.infra.websocket.model.ConnectionSession;

@@ -1,4 +1,4 @@
-package io.github.mangomaner.mangobot.adapter.onebot.utils;
+package io.github.mangomaner.mangobot.adapter.onebot.handler.inbound.process_file;
 
 import io.github.mangomaner.mangobot.adapter.onebot.model.segment.*;
 import io.github.mangomaner.mangobot.module.agent.workspace.ImageParseService;

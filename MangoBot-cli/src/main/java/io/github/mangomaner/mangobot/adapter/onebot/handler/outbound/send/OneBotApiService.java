@@ -11,7 +11,7 @@ import io.github.mangomaner.mangobot.adapter.onebot.model.dto.OneBotApiRequest;
 import io.github.mangomaner.mangobot.adapter.onebot.handler.outbound.build_sending_message.OneBotSendingMessage;
 import io.github.mangomaner.mangobot.adapter.onebot.model.vo.*;
 import io.github.mangomaner.mangobot.adapter.onebot.handler.outbound.build_sending_message.LocationCard;
-import io.github.mangomaner.mangobot.adapter.onebot.utils.OneBotMessageParser;
+import io.github.mangomaner.mangobot.adapter.onebot.render.OneBotMessageParser;
 import io.github.mangomaner.mangobot.infra.websocket.ConnectionSessionManager;
 import io.github.mangomaner.mangobot.infra.websocket.model.ConnectionSession;
 import io.github.mangomaner.mangobot.module.message.groupMessage.service.GroupMessagesService;

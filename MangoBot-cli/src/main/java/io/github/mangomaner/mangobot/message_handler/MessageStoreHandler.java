@@ -1,8 +1,8 @@
 package io.github.mangomaner.mangobot.message_handler;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.github.mangomaner.mangobot.adapter.onebot.utils.OneBotMessageFileProcessor;
-import io.github.mangomaner.mangobot.adapter.onebot.utils.OneBotMessageParser;
+import io.github.mangomaner.mangobot.adapter.onebot.handler.inbound.process_file.OneBotMessageFileProcessor;
+import io.github.mangomaner.mangobot.adapter.onebot.render.OneBotMessageParser;
 import io.github.mangomaner.mangobot.annotation.PluginPriority;
 import io.github.mangomaner.mangobot.annotation.messageHandler.MangoBotEventListener;
 import io.github.mangomaner.mangobot.events.configuration.BotConfigChangedEvent;

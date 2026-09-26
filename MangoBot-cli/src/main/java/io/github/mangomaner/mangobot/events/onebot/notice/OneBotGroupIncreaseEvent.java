@@ -2,7 +2,6 @@ package io.github.mangomaner.mangobot.events.onebot.notice;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonTypeName;
-import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import io.github.mangomaner.mangobot.adapter.onebot.model.event.notice.OneBotNoticeEvent;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -15,7 +14,6 @@ import lombok.ToString;
 @EqualsAndHashCode(callSuper = true)
 @ToString(callSuper = true)
 @JsonTypeName("group_increase")
-@JsonDeserialize(using = com.fasterxml.jackson.databind.JsonDeserializer.None.class)
 public class OneBotGroupIncreaseEvent extends OneBotNoticeEvent {
     @JsonProperty("sub_type")
     private String subType; // approve, invite

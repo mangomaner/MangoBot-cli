@@ -1,4 +1,4 @@
-package io.github.mangomaner.mangobot.manager.model.onebot.event;
+package io.github.mangomaner.mangobot.adapter.onebot.handler.inbound.json_to_event;
 
 import org.junit.jupiter.api.Test;
 import io.github.mangomaner.mangobot.adapter.onebot.model.event.OneBotEvent;
@@ -20,7 +20,7 @@ import io.github.mangomaner.mangobot.adapter.onebot.model.segment.MarkdownSegmen
 
 import static org.junit.jupiter.api.Assertions.*;
 
-public class EventParserTest {
+public class OneBotEventParserTest {
 
     @Test
     public void testParseKeyboardAndMarkdown() throws Exception {

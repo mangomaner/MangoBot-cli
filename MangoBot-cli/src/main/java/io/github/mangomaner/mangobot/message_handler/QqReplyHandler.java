@@ -4,8 +4,8 @@ import io.github.mangomaner.mangobot.adapter.onebot.model.event.message.OneBotMe
 import io.github.mangomaner.mangobot.adapter.onebot.model.segment.ImageSegment;
 import io.github.mangomaner.mangobot.adapter.onebot.model.segment.OneBotMessageSegment;
 import io.github.mangomaner.mangobot.adapter.onebot.model.segment.ReplySegment;
-import io.github.mangomaner.mangobot.adapter.onebot.utils.ChatEnvelope;
-import io.github.mangomaner.mangobot.adapter.onebot.utils.MessageLexer;
+import io.github.mangomaner.mangobot.adapter.onebot.render.ChatEnvelope;
+import io.github.mangomaner.mangobot.adapter.onebot.render.MessageLexer;
 import io.github.mangomaner.mangobot.annotation.PluginPriority;
 import io.github.mangomaner.mangobot.annotation.messageHandler.MangoBotEventListener;
 import io.github.mangomaner.mangobot.api.MangoFileApi;

@@ -1,7 +1,6 @@
 package io.github.mangomaner.mangobot.events.onebot.notice;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import io.github.mangomaner.mangobot.adapter.onebot.model.event.notice.OneBotNoticeEvent;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -12,7 +11,6 @@ import java.util.List;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @ToString(callSuper = true)
-@JsonDeserialize(using = com.fasterxml.jackson.databind.JsonDeserializer.None.class)
 public class OneBotGroupMsgEmojiLikeEvent extends OneBotNoticeEvent {
     @JsonProperty("group_id")
     private long groupId;

@@ -1,7 +1,6 @@
 package io.github.mangomaner.mangobot.events.onebot.message;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import io.github.mangomaner.mangobot.adapter.onebot.model.event.message.OneBotMessageEvent;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -15,7 +14,6 @@ import java.util.Map;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @ToString(callSuper = true)
-@JsonDeserialize(using = com.fasterxml.jackson.databind.JsonDeserializer.None.class)
 public class OneBotMessageSentEvent extends OneBotMessageEvent {
     @JsonProperty("message_sent_type")
     private String messageSentType;

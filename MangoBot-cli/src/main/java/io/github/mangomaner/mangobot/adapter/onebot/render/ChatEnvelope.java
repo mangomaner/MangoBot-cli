@@ -1,4 +1,4 @@
-package io.github.mangomaner.mangobot.adapter.onebot.utils;
+package io.github.mangomaner.mangobot.adapter.onebot.render;
 
 import java.time.Instant;
 import java.time.ZoneId;

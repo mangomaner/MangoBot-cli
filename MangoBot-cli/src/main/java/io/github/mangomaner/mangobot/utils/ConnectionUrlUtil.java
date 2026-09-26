@@ -1,4 +1,4 @@
-package io.github.mangomaner.mangobot.adapter.onebot.util;
+package io.github.mangomaner.mangobot.utils;
 
 import java.net.URI;
 import java.net.URISyntaxException;

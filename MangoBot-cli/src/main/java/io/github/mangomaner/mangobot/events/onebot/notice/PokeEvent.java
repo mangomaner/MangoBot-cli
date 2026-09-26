@@ -3,7 +3,6 @@ package io.github.mangomaner.mangobot.events.onebot.notice;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonTypeName;
-import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import io.github.mangomaner.mangobot.adapter.onebot.model.event.notice.OneBotNoticeEvent;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -16,7 +15,6 @@ import lombok.ToString;
 @EqualsAndHashCode(callSuper = true)
 @ToString(callSuper = true)
 @JsonTypeName("notify")
-@JsonDeserialize(using = com.fasterxml.jackson.databind.JsonDeserializer.None.class)
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class PokeEvent extends OneBotNoticeEvent {
     @JsonProperty("sub_type")

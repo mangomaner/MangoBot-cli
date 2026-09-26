@@ -8,7 +8,7 @@ import io.github.mangomaner.mangobot.adapter.onebot.model.dto.UpdateOneBotConfig
 import io.github.mangomaner.mangobot.adapter.model.enums.ConnectionStatus;
 import io.github.mangomaner.mangobot.adapter.onebot.model.vo.OneBotConfigVO;
 import io.github.mangomaner.mangobot.adapter.onebot.service.OneBotConfigService;
-import io.github.mangomaner.mangobot.adapter.onebot.util.ConnectionUrlUtil;
+import io.github.mangomaner.mangobot.utils.ConnectionUrlUtil;
 import io.github.mangomaner.mangobot.system.common.ErrorCode;
 import io.github.mangomaner.mangobot.infra.websocket.WebSocketServerManager;
 import io.github.mangomaner.mangobot.system.exception.BusinessException;

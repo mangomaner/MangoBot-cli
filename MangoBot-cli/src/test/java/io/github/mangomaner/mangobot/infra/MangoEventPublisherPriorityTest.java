@@ -1,4 +1,4 @@
-package io.github.mangomaner.mangobot.manager.model.onebot.event;
+package io.github.mangomaner.mangobot.infra;
 
 import io.github.mangomaner.mangobot.infra.MangoEventPublisher;
 import org.junit.jupiter.api.Test;
@@ -13,8 +13,8 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-@SpringBootTest(classes = {MangoEventPublisher.class, PriorityTest.TestListener.class})
-public class PriorityTest {
+@SpringBootTest(classes = {MangoEventPublisher.class, MangoEventPublisherPriorityTest.TestListener.class})
+public class MangoEventPublisherPriorityTest {
 
     @Autowired
     private MangoEventPublisher publisher;

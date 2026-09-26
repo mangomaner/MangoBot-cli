@@ -1,4 +1,4 @@
-package io.github.mangomaner.mangobot.adapter.onebot.utils;
+package io.github.mangomaner.mangobot.adapter.onebot.render;
 
 /**
  * {@link MessageLexer#parse(String)} 解析模型字面文本失败时抛出。

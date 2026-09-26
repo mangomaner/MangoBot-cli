@@ -1,4 +1,4 @@
-package io.github.mangomaner.mangobot.manager.model.onebot.event;
+package io.github.mangomaner.mangobot.events.onebot.message;
 
 import org.junit.jupiter.api.Test;
 import io.github.mangomaner.mangobot.adapter.onebot.model.event.message.OneBotMessageEvent;

@@ -1,4 +1,4 @@
-package io.github.mangomaner.mangobot.manager;
+package io.github.mangomaner.mangobot;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;

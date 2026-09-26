@@ -4,7 +4,7 @@ import io.github.mangomaner.mangobot.adapter.onebot.handler.outbound.build_sendi
 import io.github.mangomaner.mangobot.adapter.onebot.model.segment.ImageSegment;
 import io.github.mangomaner.mangobot.adapter.onebot.model.segment.OneBotMessageSegment;
 import io.github.mangomaner.mangobot.adapter.onebot.model.segment.ReplySegment;
-import io.github.mangomaner.mangobot.adapter.onebot.utils.MessageLexer;
+import io.github.mangomaner.mangobot.adapter.onebot.render.MessageLexer;
 import io.github.mangomaner.mangobot.module.file.model.domain.BotFiles;
 import io.github.mangomaner.mangobot.utils.FileUtils;
 
