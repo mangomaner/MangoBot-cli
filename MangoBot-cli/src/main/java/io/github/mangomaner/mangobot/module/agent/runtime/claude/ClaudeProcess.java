@@ -66,12 +66,13 @@ public class ClaudeProcess {
      * @param workingDir   子进程工作目录
      * @param configDir    作为 {@code CLAUDE_CONFIG_DIR} 注入，隔离于用户个人配置
      * @param endpointEnv  端点配置（base url / 密钥 / 模型），显式覆盖环境里继承来的同名变量
-     * @param extraArgs    追加到命令行末尾的额外参数
-     * @param builtinTools 允许模型使用的 claude 内置工具，空格分隔的白名单；{@code null} 或空串表示一个都不给
+     * @param extraArgs      追加到命令行末尾的额外参数
+     * @param builtinTools   允许模型使用的 claude 内置工具，空格分隔的白名单；{@code null} 或空串表示一个都不给
+     * @param resumeSession  是否续上这个工作目录里最近的一次对话（{@code -c}）。见下面 {@code -c} 那段说明
      */
     public static ClaudeProcess start(Path binary, Path workingDir, Path configDir,
                                       Map<String, String> endpointEnv, List<String> extraArgs,
-                                      String builtinTools)
+                                      String builtinTools, boolean resumeSession)
             throws IOException {
         List<String> command = new ArrayList<>();
         command.add(binary.toString());
@@ -89,6 +90,22 @@ public class ClaudeProcess {
         // 空串 = 一个都不给（fail closed），测评的 judge 会话走这条。
         command.add("--tools");
         command.add(builtinTools == null ? "" : builtinTools);
+
+        // {@code -c}（continue）= 续上"这个工作目录里最近的一次对话"。claude 一直把每场对话完整写在
+        // {@code <configDir>/projects/<cwd 的 slug>/<sessionId>.jsonl}，只是此前我们从不接上去——
+        // 于是每次进程重建（重启、改技能）都另起一条，上下文看起来"丢了"。
+        //
+        // 为什么是 -c 而不是 --session-id/--resume：会话与工作目录本来就是一对一（一个群一个目录），
+        // 用 -c 零簿记；而 --session-id 要求自己生成合法 UUID、还得判断"这是第一次还是续"。
+        // 实测（2026-09-26，claude 2.1.128）：-p --input-format stream-json 下 -c 能续上；
+        // 且在全新的空目录上用 -c 不报错，直接开一场新对话——所以不需要"先看有没有转录"的分支。
+        //
+        // 为什么做成开关而不是无条件加：judge 会话每次评判都必须独立（同一个 key 重跑时续上
+        // 上一次的评判会污染结论），探针也没必要续。见 ClaudeSession 的续会话标志。
+        if (resumeSession) {
+            command.add("-c");
+        }
+
         if (extraArgs != null) {
             command.addAll(extraArgs);
         }

@@ -98,10 +98,10 @@ public class SimSessionService {
         // 没有专属配置行的 self_id 会被 MangoEventPublisher 的白名单整条拦掉，一条也喂不进去
         SimBotProfile.seedWhitelist();
 
-        // 必须重建进程：模拟用的是固定会话键，不重建就会命中上一场留下的常驻进程，
-        // 于是这一场开局就带着上一场的对话历史（甚至带着上一版的技能与协议头）。
-        // 重建发生在下一次 ensureProcess()，也就是这一场的第一轮之前。
-        runtimeManager.markSessionStale(SimBotProfile.sessionKey());
+        // 模拟用的是固定的会话键与工作目录，所以必须把上一场彻底清掉，否则这一场开局就会带着
+        // 上一场的对话历史（现在会话是持久化的，光重建进程不够——{@code -c} 会把旧转录续回来）。
+        // resetSession = 关进程 + 删该会话的 config 目录，正好是"这一场从零开始"。
+        runtimeManager.resetSession(SimBotProfile.sessionKey());
 
         SimOneBotClient client = new SimOneBotClient(
                 URI.create(MOCK_SERVER_URI), SimBotProfile.SELF_ID, SimImageIndex.of(List.of()));

@@ -50,6 +50,13 @@ public class ClaudeSession {
     private final Supplier<List<String>> capabilityArgsSupplier;
     /** claude 内置工具白名单（空格分隔）；空串=全禁。judge 会话要一个工具都不给，见 ClaudeRuntimeManager。 */
     private final String builtinTools;
+    /**
+     * 拉起进程时要不要续上这个工作目录里最近的一次对话（{@code -c}）。
+     *
+     * <p>正常聊天会话为 {@code true}——重启、改技能重建进程之后，上下文都还在。judge / 探针 / 一次性
+     * 会话为 {@code false}：它们每次都必须从干净的上下文开始。
+     */
+    private final boolean resumeSession;
 
     private final Semaphore turnGate = new Semaphore(1);
     private final AtomicBoolean turnInFlight = new AtomicBoolean(false);
@@ -66,7 +73,7 @@ public class ClaudeSession {
                          ClaudeRuntimeProperties properties,
                          Supplier<Map<String, String>> endpointEnvSupplier,
                          Supplier<List<String>> capabilityArgsSupplier,
-                         String builtinTools) {
+                         String builtinTools, boolean resumeSession) {
         this.key = key;
         this.binary = binary;
         this.workingDir = workingDir;
@@ -75,6 +82,7 @@ public class ClaudeSession {
         this.endpointEnvSupplier = endpointEnvSupplier;
         this.capabilityArgsSupplier = capabilityArgsSupplier;
         this.builtinTools = builtinTools;
+        this.resumeSession = resumeSession;
     }
 
     public String key() {
@@ -234,6 +242,11 @@ public class ClaudeSession {
 
         FileUtils.createDirectory(workingDir);
         FileUtils.createDirectory(configDir);
+        // 每个会话一份 config 目录，所以每次拉起都要保证它里面有 .claude.json——缺了
+        // hasCompletedOnboarding，claude 会弹主题/登录向导把子进程卡死（-p 只跳过工作区信任，
+        // 不跳过 onboarding）。放在这里而不是启动时一次性播，是为了顺带把"删掉 config 目录 =
+        // 清空上下文"做成自愈的：清完下一轮拉起时这里会重新播种。
+        ClaudeConfigSeeder.seed(configDir, workingDir);
 
         List<String> args = new ArrayList<>();
         List<String> capabilityArgs = capabilityArgsSupplier != null ? capabilityArgsSupplier.get() : null;
@@ -247,7 +260,7 @@ public class ClaudeSession {
         ClaudeProcess started;
         try {
             started = ClaudeProcess.start(binary, workingDir, configDir,
-                    endpointEnvSupplier.get(), args, builtinTools);
+                    endpointEnvSupplier.get(), args, builtinTools, resumeSession);
         } catch (IOException e) {
             throw new IllegalStateException("Failed to start claude process for session " + key, e);
         }

@@ -20,7 +20,6 @@ import java.util.List;
  *   claude:
  *     enabled: true
  *     binary-path:            # 显式指定 claude 可执行文件，留空则按平台自动解析
- *     config-dir:             # CLAUDE_CONFIG_DIR，留空则用 &lt;base&gt;/data/claude-config
  *     working-dir:            # 子进程工作目录，留空则用 &lt;base&gt;/data/claude-work
  *     turn-timeout-seconds: 120
  *     shutdown-grace-millis: 3000
@@ -39,14 +38,23 @@ import java.util.List;
 @ConfigurationProperties(prefix = "mangobot.claude")
 public class ClaudeRuntimeProperties {
 
+    /**
+     * 是否让正常聊天会话续上上一次的对话（{@code -c}）。
+     *
+     * <p>默认开——会话历史本来就被 claude 一直写在 {@code <会话目录>/claude-config/projects/} 下，
+     * 关掉等于每次进程重建都从零开始（旧行为）。judge / 探针 / 一次性会话不受这个开关影响，它们永远不续。
+     *
+     * <p>做成开关是为了能一键退回旧行为：续会话会把整段历史重新载入，重启后第一轮的输入 token
+     * 会明显高于平时，会话长了更明显。
+     */
+    private boolean resumeSessions = true;
+
     /** 是否启用 Claude Code 运行时 */
     private boolean enabled = true;
 
     /** 显式指定 claude 可执行文件路径，优先级高于平台自动解析 */
     private String binaryPath;
 
-    /** CLAUDE_CONFIG_DIR 目标目录，留空则用 &lt;base&gt;/data/claude-config */
-    private String configDir;
 
     /** 子进程工作目录，留空则用 &lt;base&gt;/data/claude-work */
     private String workingDir;

@@ -34,8 +34,9 @@ class ClaudeSessionSmokeTest {
         Optional<Path> binary = ClaudeBinaryResolver.resolve(properties);
         assumeTrue(binary.isPresent(), "未找到 claude 二进制，跳过。查找顺序见 ClaudeBinaryResolver");
 
-        Path configDir = FileUtils.getBaseDirectory().resolve("data/claude-config");
+        // 与会话的布局一致：config 目录在工作目录里面（共享的那份已随持久化改造取消）
         Path workingDir = FileUtils.getBaseDirectory().resolve("data/claude-work/junit-smoke");
+        Path configDir = workingDir.resolve("claude-config");
         ClaudeConfigSeeder.seed(configDir, workingDir);
 
         // 端点凭据平时由 ClaudeRuntimeManager 在 spawn 时从「模型设置」现取；这里没起 Spring，
@@ -44,8 +45,10 @@ class ClaudeSessionSmokeTest {
         assumeTrue(endpointEnv != null,
                 "未提供 ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN / ANTHROPIC_MODEL，跳过");
 
+        // 最后一个参数是不续会话（false）：冒烟测的是"进程能起来、能回一轮"，续上历史只会让这一轮
+        // 多背一段没用的上下文。
         ClaudeSession session = new ClaudeSession("junit:smoke", binary.get(), workingDir, configDir,
-                properties, () -> endpointEnv, List::of, properties.getBuiltinTools());
+                properties, () -> endpointEnv, List::of, properties.getBuiltinTools(), false);
         try {
             List<ClaudeEvent> events = session.sendTurn("Reply with exactly the word: PONG")
                     .collectList()

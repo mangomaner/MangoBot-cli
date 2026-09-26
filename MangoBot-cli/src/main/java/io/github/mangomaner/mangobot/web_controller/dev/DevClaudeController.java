@@ -50,6 +50,9 @@ import java.util.concurrent.atomic.AtomicLong;
 @Slf4j
 public class DevClaudeController {
 
+    /** dev 流式端点用的会话键（{@code getOrCreate("dev", "default", WEB)}）。 */
+    private static final String DEV_SESSION_KEY = "dev:default";
+
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final String CONFIG_FILE = ".claude.json";
     private static final String DONE = "[DONE]";
@@ -70,7 +73,9 @@ public class DevClaudeController {
     @GetMapping("/status")
     public BaseResponse<StatusVO> status() {
         Path binary = runtimeManager.binaryPath();
-        Path configDir = runtimeManager.configDir();
+        // 配置目录现在是"每个会话一份"（见 ClaudeRuntimeManager.CLAUDE_CONFIG_SUBDIR），
+        // 这里报 dev 会话那一份作为实况；要别的会话用 /config-seed?sessionKey=…
+        Path configDir = runtimeManager.sessionConfigDir(DEV_SESSION_KEY);
         Path workingDir = runtimeManager.workingDir();
         ModelEndpoint endpoint = runtimeManager.mainModelEndpoint();
 
@@ -103,10 +108,15 @@ public class DevClaudeController {
     // 配置播种检查
     // ========================================================================
 
-    /** 配置播种检查：{@code <configDir>/.claude.json} 的实况与关键字段。 */
+    /**
+     * 配置播种检查：某个会话的 {@code <会话目录>/claude-config/.claude.json} 的实况与关键字段。
+     *
+     * @param sessionKey 会话键，形如 {@code 3970521445:group:420418118}；默认查 dev 会话
+     */
     @GetMapping("/config-seed")
-    public BaseResponse<ConfigSeedVO> configSeed() {
-        Path configDir = runtimeManager.configDir();
+    public BaseResponse<ConfigSeedVO> configSeed(
+            @RequestParam(defaultValue = DEV_SESSION_KEY) String sessionKey) {
+        Path configDir = runtimeManager.sessionConfigDir(sessionKey);
         if (configDir == null) {
             return ResultUtils.success(ConfigSeedVO.unavailable(
                     "运行时未初始化（mangobot.claude.enabled=false，或未找到 claude 可执行文件），配置目录尚未确定"));

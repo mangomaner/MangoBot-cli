@@ -13,8 +13,11 @@ import java.util.Date;
 /**
  * 对话会话（chat_session）
  *
- * <p>v2 升级：废弃 memory_state（上下文由 AgentStateStore + workspace 会话日志承载），
- * 会话以 (bot_id, source, chat_id) 为业务键。
+ * <p>会话以 {@code (bot_id, source, chat_id)} 为业务键，与 claude 的会话键一一对应。
+ *
+ * <p><b>这张表不承载对话上下文</b>：它只是给 UI 用的会话投影。真正的上下文活在 claude 子进程里，
+ * 并由 claude 自己写在 {@code data/claude-work/<会话>/claude-config/projects/} 下的转录里，
+ * 进程重建时靠 {@code -c} 续上。
  */
 @TableName(value = "chat_session")
 @Data

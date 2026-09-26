@@ -20,8 +20,11 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.stream.Stream;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -53,7 +56,14 @@ import java.util.concurrent.TimeUnit;
 @MangoBotEventListener
 public class ClaudeRuntimeManager {
 
-    private static final String DEFAULT_CONFIG_DIR = "data/claude-config";
+    /**
+     * 每个会话自己那份 claude 家目录，落在该会话的工作目录下：{@code <会话目录>/claude-config}。
+     *
+     * <p>为什么不共用一个：会话转录写在 {@code <configDir>/projects/<cwd 的 slug>/} 下，而那个目录名是
+     * claude 自己按 cwd 算的（归一化规则没官方文档）。要让"清空上下文"变成"删掉这个会话自己的目录"、
+     * 而不是去猜/internal 命名，最省事的办法就是让每个会话有自己的 config 目录。
+     */
+    private static final String CLAUDE_CONFIG_SUBDIR = "claude-config";
     private static final String DEFAULT_WORK_DIR = "data/claude-work";
     private static final long PROBE_SETTLE_MILLIS = 2000L;
 
@@ -77,8 +87,7 @@ public class ClaudeRuntimeManager {
     private volatile ScheduledExecutorService reaper;
 
     private volatile Path binary;
-    private volatile Path configDir;
-    private volatile Path workingDir;
+        private volatile Path workingDir;
 
     /**
      * 初始化阶段判定的不可用原因（被禁用 / 找不到二进制）；这一层没问题时为空串。
@@ -100,12 +109,8 @@ public class ClaudeRuntimeManager {
             return;
         }
 
-        this.configDir = resolveDir(properties.getConfigDir(), DEFAULT_CONFIG_DIR);
         this.workingDir = resolveDir(properties.getWorkingDir(), DEFAULT_WORK_DIR);
-        FileUtils.createDirectory(configDir);
         FileUtils.createDirectory(workingDir);
-
-        ClaudeConfigSeeder.seed(configDir, workingDir);
 
         Optional<Path> resolved = ClaudeBinaryResolver.resolve(properties);
         if (resolved.isEmpty()) {
@@ -121,8 +126,8 @@ public class ClaudeRuntimeManager {
 
         this.binary = resolved.get();
         runtimeProblem = "";
-        log.info("Claude 运行时二进制就绪：binary={} platform={} configDir={} workingDir={}",
-                binary, ClaudeBinaryResolver.platformKey(), configDir, workingDir);
+        log.info("Claude 运行时二进制就绪：binary={} platform={} workingDir={}（每个会话的 claude 家目录在 <会话目录>/{}}）",
+                binary, ClaudeBinaryResolver.platformKey(), workingDir, CLAUDE_CONFIG_SUBDIR);
 
         logEndpointState();
         startReaper();
@@ -145,8 +150,10 @@ public class ClaudeRuntimeManager {
         }
         String key = botId + ":" + sourceKey;
         return sessions.computeIfAbsent(key, k -> new ClaudeSession(k, binary,
-                sessionWorkingDir(k), configDir, properties, () -> spawnEnv(k, mainModelEndpoint()),
-                () -> capabilityArgs(k, source), properties.getBuiltinTools()));
+                sessionWorkingDir(k), sessionConfigDir(k), properties,
+                () -> spawnEnv(k, mainModelEndpoint()),
+                () -> capabilityArgs(k, source), properties.getBuiltinTools(),
+                properties.isResumeSessions()));
     }
 
     /**
@@ -157,6 +164,9 @@ public class ClaudeRuntimeManager {
      *
      * <p>实际关进程发生在下一次 {@link ClaudeSession#ensureProcess()}（也就是这一场的首轮），
      * 所以语义上等价于"整场从新进程开始"，而不用在这里多做一次同步等待。
+     *
+     * <p><b>注意它不丢历史</b>：新进程带 {@code -c} 拉起，会把这场对话接着续下去，只是换上了新的
+     * 技能目录与系统提示词。要连历史一起丢，用 {@link #resetSession(String)}。
      */
     public void markSessionStale(String key) {
         ClaudeSession session = sessions.get(key);
@@ -166,26 +176,30 @@ public class ClaudeRuntimeManager {
     }
 
     /**
-     * 清空某个会话的上下文：关掉它的进程并摘掉登记，下一轮对话会重新拉起一个干净的。
+     * 清空某个会话的上下文：关掉进程，并删掉它自己的 config 目录（转录就在里面）。
      *
-     * <p><b>为什么关进程就等于清空上下文</b>：本项目的 claude 是 {@code --input-format stream-json}
-     * 的常驻进程，一轮轮喂进去，历史只活在<b>进程内存</b>里——没有 {@code --resume}，也没有落在
-     * 我们会读的地方。所以进程一关，上下文就没了，不需要额外删任何文件。
+     * <p>两件事都要做：<b>只关进程不够</b>——重新拉起时带 {@code -c}，claude 会把磁盘上那份转录
+     * 又续回来，用户会看到"点了清空但没生效"。所以删目录才是真正的清空动作。
      *
-     * <p>与 {@link #markSessionStale} 的区别：那个是"下次拉起时换新参数"，进程可以继续跑完手上这轮；
-     * 这个是"现在就把它结束掉"。前者用于改配置，后者用于用户点「清空上下文」。
+     * <p>删完不用管恢复：下一轮拉起时 {@code ClaudeSession.ensureProcess()} 会重新播种
+     * {@code .claude.json}（缺了它进程会卡在 onboarding），自愈。
      *
-     * @return 是否真的关掉了一个在跑的进程（没在跑也算成功——状态已经是"没有上下文"了）
+     * <p>与 {@link #markSessionStale} 的区别：那个是"下次拉起时换新参数"，会话<b>历史保留</b>，
+     * 进程可以继续跑完手上这轮；这个是"把历史一起丢掉"。前者用于改配置，后者用于用户点「清空上下文」。
+     *
+     * @return 是否真的动了什么东西（进程或转录目录）；两者都没有也算成功——状态已经是"没有上下文"了
      */
     public boolean resetSession(String key) {
         ClaudeSession session = sessions.remove(key);
-        if (session == null) {
-            log.info("清空上下文：会话 {} 本来就没在跑", key);
-            return false;
+        if (session != null) {
+            session.close();
         }
-        session.close();
-        log.info("清空上下文：已关掉会话 {} 的进程，下一轮从空上下文开始", key);
-        return true;
+        // 光关进程不够：进程重新拉起时带 {@code -c}，会把磁盘上那份转录又续回来——按钮会看起来"没生效"。
+        // 所以真正的清空是把这个会话自己的 config 目录删掉（转录就在里面）。
+        boolean deleted = deleteSessionConfigDir(key);
+        log.info("清空上下文：session={} 关掉在跑的进程={} 删掉转录目录={}",
+                key, session != null, deleted);
+        return session != null || deleted;
     }
 
     /**
@@ -233,9 +247,10 @@ public class ClaudeRuntimeManager {
         if (!isReady()) {
             throw new IllegalStateException("Claude 运行时未就绪：" + notReadyReason());
         }
-        return new ClaudeSession(key, binary, sessionWorkingDir(key), configDir,
+        // 一次性会话永远不续：它要么是探针、要么是模拟台的 judge，每次都必须从干净上下文开始
+        return new ClaudeSession(key, binary, sessionWorkingDir(key), sessionConfigDir(key),
                 properties, () -> spawnEnv(key, mainModelEndpoint()),
-                () -> capabilityArgs(key, source), builtinTools);
+                () -> capabilityArgs(key, source), builtinTools, false);
     }
 
     public boolean isReady() {
@@ -281,8 +296,9 @@ public class ClaudeRuntimeManager {
             args.add(systemPrompt);
         }
 
-        return new ClaudeSession(key, binary, sessionDir, configDir, properties,
-                () -> spawnEnv(key, endpoint), () -> args, "");
+        // judge 永远不续会话：每次评判都必须从干净上下文开始
+        return new ClaudeSession(key, binary, sessionDir, sessionConfigDir(key), properties,
+                () -> spawnEnv(key, endpoint), () -> args, "", false);
     }
 
     /**
@@ -319,10 +335,6 @@ public class ClaudeRuntimeManager {
 
     public Path binaryPath() {
         return binary;
-    }
-
-    public Path configDir() {
-        return configDir;
     }
 
     public Path workingDir() {
@@ -795,6 +807,37 @@ public class ClaudeRuntimeManager {
     }
 
     /** 会话工作目录需为文件系统安全名：Windows 路径段不允许 ':'，故把 key 里的分隔符替换掉。 */
+    /**
+     * 某个会话自己的 claude 配置目录（也放着它的会话转录）。
+     *
+     * <p>公开是给 dev 诊断端点用的；正常路径上只有 {@link ClaudeSession} 会用到它。
+     */
+    public Path sessionConfigDir(String key) {
+        return sessionWorkingDir(key).resolve(CLAUDE_CONFIG_SUBDIR);
+    }
+
+    /** 删掉某个会话自己的 config 目录——即"清空它的上下文"。 */
+    private boolean deleteSessionConfigDir(String key) {
+        Path dir = sessionConfigDir(key);
+        if (!Files.isDirectory(dir)) {
+            return false;
+        }
+        try (Stream<Path> walk = Files.walk(dir)) {
+            walk.sorted(java.util.Comparator.reverseOrder()).forEach(p -> {
+                try {
+                    Files.deleteIfExists(p);
+                } catch (IOException e) {
+                    log.warn("删除会话配置目录时出错：{}", p, e);
+                }
+            });
+            log.info("已删除会话配置目录（上下文随之清空）：{}", dir);
+            return true;
+        } catch (IOException e) {
+            log.error("删除会话配置目录失败：{}", dir, e);
+            return false;
+        }
+    }
+
     private Path sessionWorkingDir(String key) {
         String safe = key.replaceAll("[^A-Za-z0-9_-]", "_");
         return workingDir.resolve(safe);

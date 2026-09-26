@@ -28,8 +28,8 @@ import java.util.stream.Collectors;
 /**
  * 对话会话 Service 实现
  *
- * <p>v2 升级：会话表保留（UI 查询投影），废弃 memory_state（上下文由
- * AgentStateStore + workspace 会话日志承载）；会话以 (bot_id, source, chat_id) 为业务键。
+ * <p>会话表只是 UI 查询投影：真正的对话上下文活在 claude 子进程与它自己的转录里
+ * （见 {@code ChatSession} 的类注释）；会话以 {@code (bot_id, source, chat_id)} 为业务键。
  */
 @Slf4j
 @Service
