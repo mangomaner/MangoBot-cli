@@ -235,6 +235,7 @@ CREATE TABLE IF NOT EXISTS bot_files
     sub_type       INTEGER,
     file_size      INTEGER,
     description    TEXT,
+    favorite       INTEGER default 0,
     create_time    INTEGER default (strftime('%s', 'now') * 1000)
 );
 

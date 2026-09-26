@@ -9,6 +9,7 @@ import io.github.mangomaner.mangobot.module.agent.capability.tool.builtin.DateTi
 import io.github.mangomaner.mangobot.module.agent.model.enums.SessionSource;
 import io.github.mangomaner.mangobot.module.agent.runtime.claude.ClaudeRuntimeManager;
 import io.github.mangomaner.mangobot.module.agent.sim.service.SimSchema;
+import io.github.mangomaner.mangobot.module.file.service.FileSchema;
 import io.github.mangomaner.mangobot.message_handler.response.tools.QqReplyTool;
 import io.github.mangomaner.mangobot.plugin.core.PluginManager;
 import lombok.extern.slf4j.Slf4j;
@@ -56,6 +57,7 @@ public class MangoBotApplication {
         JavaToolMcpServer javaToolMcpServer = context.getBean(JavaToolMcpServer.class);
         ClaudeRuntimeManager claudeRuntimeManager = context.getBean(ClaudeRuntimeManager.class);
         SimSchema simSchema = context.getBean(SimSchema.class);
+        FileSchema fileSchema = context.getBean(FileSchema.class);
 
         apiManager.init();
         log.info("[1/5] 静态 API 初始化完成");
@@ -69,6 +71,9 @@ public class MangoBotApplication {
         // 兜底建模拟台两张表：本项目没有迁移机制，schema.sql 只在 DB 文件不存在时执行，
         // 老库拿不到这两张表就只能靠这里
         simSchema.init();
+
+        // 同理，bot_files 的表情收藏列也是后加的，老库得靠这里补上
+        fileSchema.init();
 
         // 内置工具先落进 agent_java_tool_config，MCP server 再按「启用的」挂上去。
         // 放在插件加载之后：插件在 init 里经 MangoToolApi 注册的工具也要一起被看见。

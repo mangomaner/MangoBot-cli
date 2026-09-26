@@ -70,8 +70,9 @@ public class QqReplyTool {
     }
 
     @MangoToolMethod(name = "send_meme",
-            description = "从表情包库挑一张最贴合 keyword 的发出去。想用表情包回应就调它，"
-                    + "keyword 用一两个词描述想要的情绪或内容（如 开心 / 无语 / 摸鱼）。")
+            description = "从管理员收藏的表情里挑一张最贴合 keyword 的发出去。想用表情包回应就调它，"
+                    + "keyword 用一两个词描述想要的情绪或内容（如 开心 / 无语 / 摸鱼）。"
+                    + "能选的范围是人工挑过的，所以挑不到贴切的很正常——那就改用文字，别硬凑。")
     public String sendMeme(
             @MangoToolParam(name = "keyword", description = "想要的情绪或内容，一两个词") String keyword,
             @MangoToolParam(name = "reply_to", required = false, description = REPLY_TO_DESC) Long replyTo) {
@@ -83,7 +84,7 @@ public class QqReplyTool {
 
         BotFiles meme = pickMeme(keyword);
         if (meme == null) {
-            return "表情包库里没有可用的图（需要 fileType=meme 且已生成描述），这条没有发出去，改用文字回复吧。";
+            return "收藏的表情库为空（要 meme、已收藏、且有描述），这条没有发出去，改用文字回复吧。";
         }
 
         send(context, MessageSendSupport.imageMessage(meme, normalizeReplyTo(replyTo, context)));
@@ -192,18 +193,19 @@ public class QqReplyTool {
     }
 
     /**
-     * 挑一张表情包：按 keyword 与描述的命中数打分，取最高分；一条都没命中就在有描述的里随机取。
+     * 挑一张表情：按 keyword 与描述的命中数打分，取最高分；一条都没命中就在池子里随机取。
      *
-     * <p>只考虑 {@code fileType=meme} <b>且描述非空</b>的行——没有描述的图发出去无法预期效果，
-     * 也挑不出来。库里为空或全无描述时返回 null，由调用方回一句可读的话让模型退回文字。
+     * <p><b>池子是「收藏的表情」</b>，不是全部 meme——取数条件收在
+     * {@link MangoFileApi#getUsableFavoriteMemes()} 一处（要已收藏、有描述、有本地文件）。
+     * 这里的过滤条件 {@code keyword} 与那些是两回事：前者是挑哪张，后者是有没有资格被挑。
+     *
+     * <p>池子为空时返回 null，由调用方回一句可读的话让模型退回文字。**这是常态而不是异常**——
+     * 收藏是人工挑的，池子通常只有几十张，很多情绪在里面根本没有对应的图。
      */
     private BotFiles pickMeme(String keyword) {
-        List<BotFiles> usable = MangoFileApi.getFilesByType("meme").stream()
-                .filter(file -> file.getDescription() != null && !file.getDescription().isBlank())
-                .filter(file -> file.getFilePath() != null && !file.getFilePath().isBlank())
-                .toList();
+        List<BotFiles> usable = MangoFileApi.getUsableFavoriteMemes();
         if (usable.isEmpty()) {
-            log.warn("表情包库为空或所有 meme 行都没有描述，send_meme 无法出图");
+            log.warn("收藏的表情库为空，send_meme 无法出图（需要 meme、favorite=1、有描述与本地文件）");
             return null;
         }
 

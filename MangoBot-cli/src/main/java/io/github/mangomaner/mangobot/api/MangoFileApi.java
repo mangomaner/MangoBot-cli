@@ -46,6 +46,15 @@ public class MangoFileApi {
         return service.getFileByFileId(fileId);
     }
 
+    /**
+     * agent 发表情唯一能用的池子：已收藏、有描述、有本地文件的 meme。
+     * 收藏为空时返回空列表（发表情的能力就是关着的，不做回退）。
+     */
+    public static List<BotFiles> getUsableFavoriteMemes() {
+        checkService();
+        return service.listUsableFavoriteMemes();
+    }
+
     public static List<BotFiles> getFilesByType(String fileType) {
         checkService();
         return service.getFilesByType(fileType);

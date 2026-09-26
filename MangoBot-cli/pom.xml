@@ -79,6 +79,18 @@
             <version>3.5.15</version>
         </dependency>
 
+        <!--
+            MyBatis-Plus 从 3.5.9 起把 JSqlParser 拆成了独立依赖，而分页插件
+            （PaginationInnerInterceptor）要靠它把 LIMIT 拼进 SQL。
+            不引这个：分页插件注册不上（或者注册了但运行时报找不到类），
+            而 page() 不会因此报错，它会**静默地把全表查出来**再在内存里假装分页。
+        -->
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-jsqlparser</artifactId>
+            <version>3.5.15</version>
+        </dependency>
+
         <dependency>
             <groupId>org.xerial</groupId>
             <artifactId>sqlite-jdbc</artifactId>

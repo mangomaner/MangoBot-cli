@@ -36,16 +36,53 @@ public class ImageController {
     public BaseResponse<IPage<BotFiles>> getImages(
             @Parameter(description = "页码，从1开始") @RequestParam(defaultValue = "1") Integer page,
             @Parameter(description = "每页数量") @RequestParam(defaultValue = "20") Integer pageSize,
-            @Parameter(description = "图片类型：image 或 meme") @RequestParam(required = false) String fileType) {
+            @Parameter(description = "图片类型：image 或 meme") @RequestParam(required = false) String fileType,
+            @Parameter(description = "只看收藏：true 只看收藏，不传则不限")
+            @RequestParam(required = false) Boolean favorite,
+            @Parameter(description = "按描述模糊搜索") @RequestParam(required = false) String keyword) {
         LambdaQueryWrapper<BotFiles> wrapper = new LambdaQueryWrapper<>();
         wrapper.in(BotFiles::getFileType, "image", "meme");
         if (fileType != null && !fileType.isEmpty()) {
             wrapper.eq(BotFiles::getFileType, fileType);
         }
+        // favorite 传 false 时也当"只看未收藏"，所以判的是 != null 而不是 == true
+        if (favorite != null) {
+            wrapper.eq(BotFiles::getFavorite, favorite ? 1 : 0);
+        }
+        if (keyword != null && !keyword.isBlank()) {
+            wrapper.like(BotFiles::getDescription, keyword.trim());
+        }
         wrapper.orderByDesc(BotFiles::getCreateTime);
-        
+
         Page<BotFiles> pageParam = new Page<>(page, pageSize);
         IPage<BotFiles> result = botFilesService.page(pageParam, wrapper);
+        return ResultUtils.success(result);
+    }
+
+    /**
+     * 收藏 / 取消收藏。
+     *
+     * <p>发表情的池子只认收藏，所以这是表情管理页最核心的一个动作。
+     * 允许对没有描述的表情设收藏——收藏是"这张我想要"，描述是另一回事，
+     * 拿没描述当理由拒绝收藏会让页面莫名其妙。真正用不用得上由取数那头（
+     * {@code BotFilesService.listUsableFavoriteMemes}）把关。
+     */
+    @PutMapping("/favorite")
+    @Operation(summary = "收藏/取消收藏图片")
+    public BaseResponse<Boolean> setFavorite(
+            @Parameter(description = "数据库ID") @RequestParam Long id,
+            @Parameter(description = "true 收藏，false 取消") @RequestParam Boolean favorite) {
+        BotFiles file = botFilesService.getById(id);
+        if (file == null) {
+            return ResultUtils.error(404, "图片不存在");
+        }
+
+        if (!"image".equals(file.getFileType()) && !"meme".equals(file.getFileType())) {
+            return ResultUtils.error(400, "该文件不是图片类型");
+        }
+
+        file.setFavorite(Boolean.TRUE.equals(favorite) ? 1 : 0);
+        boolean result = botFilesService.updateById(file);
         return ResultUtils.success(result);
     }
 
