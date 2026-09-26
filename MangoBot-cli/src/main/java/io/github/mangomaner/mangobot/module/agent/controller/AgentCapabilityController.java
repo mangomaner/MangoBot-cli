@@ -19,6 +19,7 @@ import io.github.mangomaner.mangobot.module.agent.model.vo.JavaToolVO;
 import io.github.mangomaner.mangobot.module.agent.model.vo.McpConfigVO;
 import io.github.mangomaner.mangobot.module.agent.model.vo.McpToolVO;
 import io.github.mangomaner.mangobot.module.agent.model.vo.SkillVO;
+import io.github.mangomaner.mangobot.module.agent.runtime.claude.ClaudeRuntimeManager;
 import io.github.mangomaner.mangobot.module.agent.service.AgentJavaToolConfigService;
 import io.github.mangomaner.mangobot.module.agent.service.AgentMcpConfigService;
 import io.github.mangomaner.mangobot.module.agent.service.AgentMcpToolConfigService;
@@ -67,6 +68,8 @@ public class AgentCapabilityController {
     private final JavaToolMcpServer javaToolMcpServer;
     private final SkillManager skillManager;
 
+    private final ClaudeRuntimeManager claudeRuntimeManager;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     // ==================== Java 工具 ====================
@@ -90,8 +93,9 @@ public class AgentCapabilityController {
         boolean newEnabled = !Boolean.TRUE.equals(config.getEnabled());
         config.setEnabled(newEnabled);
         javaToolConfigService.updateById(config);
-        // 立即重挂 MCP tool；已跑着的 claude 会话仍用连接时的工具快照，下次 spawn 才看得到
+        // 立即重挂 MCP tool；已跑着的 claude 会话仍用连接时的工具快照，所以要标 stale 让下一轮重建
         javaToolMcpServer.reload();
+        claudeRuntimeManager.markAllSessionsStale();
         return new BaseResponse<>(0, newEnabled, "");
     }
 
@@ -104,6 +108,7 @@ public class AgentCapabilityController {
         }
         javaToolConfigService.removeById(id);
         javaToolMcpServer.reload();
+        claudeRuntimeManager.markAllSessionsStale();
         return new BaseResponse<>(0, true, "");
     }
 
@@ -283,6 +288,7 @@ public class AgentCapabilityController {
         config.setEnabled(false);
         skillConfigService.save(config);
         skillManager.refreshSourcePluginDirs();
+        claudeRuntimeManager.markAllSessionsStale();
 
         return new BaseResponse<>(0, config, "");
     }
@@ -306,6 +312,7 @@ public class AgentCapabilityController {
             skillManager.writeSkillContent(config.getSkillPath(), request.getSkillContent());
         }
         skillManager.refreshSourcePluginDirs();
+        claudeRuntimeManager.markAllSessionsStale();
 
         return new BaseResponse<>(0, true, "");
     }
@@ -321,6 +328,7 @@ public class AgentCapabilityController {
         config.setEnabled(newEnabled);
         skillConfigService.updateById(config);
         skillManager.refreshSourcePluginDirs();
+        claudeRuntimeManager.markAllSessionsStale();
         return new BaseResponse<>(0, newEnabled, "");
     }
 
@@ -332,6 +340,7 @@ public class AgentCapabilityController {
         try {
             skillConfigService.updateEnabledList(id, request.getEnabledList());
             skillManager.refreshSourcePluginDirs();
+            claudeRuntimeManager.markAllSessionsStale();
             return new BaseResponse<>(0, true, "");
         } catch (IllegalArgumentException e) {
             return new BaseResponse<>(ErrorCode.PARAMS_ERROR.getCode(), false, e.getMessage());
@@ -351,6 +360,7 @@ public class AgentCapabilityController {
         skillManager.deleteSkillDirectory(config.getSkillPath());
         skillConfigService.removeById(id);
         skillManager.refreshSourcePluginDirs();
+        claudeRuntimeManager.markAllSessionsStale();
         return new BaseResponse<>(0, true, "");
     }
 
@@ -373,6 +383,7 @@ public class AgentCapabilityController {
         }
         AgentSkillConfig config = skillManager.importFromZip(file.getInputStream());
         skillManager.refreshSourcePluginDirs();
+        claudeRuntimeManager.markAllSessionsStale();
         return new BaseResponse<>(0, config, "");
     }
 
@@ -383,6 +394,7 @@ public class AgentCapabilityController {
         AgentSkillConfig config = skillManager.importFromMarkdown(
                 request.getSkillName(), request.getDescription(), request.getContent());
         skillManager.refreshSourcePluginDirs();
+        claudeRuntimeManager.markAllSessionsStale();
         return new BaseResponse<>(0, config, "");
     }
 

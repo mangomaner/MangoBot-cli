@@ -62,14 +62,16 @@ public class ClaudeProcess {
     /**
      * 拉起一个 claude 进程。
      *
-     * @param binary     可执行文件路径
-     * @param workingDir 子进程工作目录
-     * @param configDir  作为 {@code CLAUDE_CONFIG_DIR} 注入，隔离于用户个人配置
-     * @param endpointEnv 端点配置（base url / 密钥 / 模型），显式覆盖环境里继承来的同名变量
-     * @param extraArgs  追加到命令行末尾的额外参数
+     * @param binary       可执行文件路径
+     * @param workingDir   子进程工作目录
+     * @param configDir    作为 {@code CLAUDE_CONFIG_DIR} 注入，隔离于用户个人配置
+     * @param endpointEnv  端点配置（base url / 密钥 / 模型），显式覆盖环境里继承来的同名变量
+     * @param extraArgs    追加到命令行末尾的额外参数
+     * @param builtinTools 允许模型使用的 claude 内置工具，空格分隔的白名单；{@code null} 或空串表示一个都不给
      */
     public static ClaudeProcess start(Path binary, Path workingDir, Path configDir,
-                                      Map<String, String> endpointEnv, List<String> extraArgs)
+                                      Map<String, String> endpointEnv, List<String> extraArgs,
+                                      String builtinTools)
             throws IOException {
         List<String> command = new ArrayList<>();
         command.add(binary.toString());
@@ -80,10 +82,13 @@ public class ClaudeProcess {
         command.add("stream-json");
         command.add("--verbose");
         command.add("--include-partial-messages");
-        // 全禁工具（"" = 一个都不给）而非逐个 deny：Windows 上的 shell 工具叫 PowerShell 不叫 Bash，
-        // 按名字 deny 会漏。禁用后系统提示词少了 23 个工具 schema，实测输入 token 从 23054 降到 5390。
+        // 用白名单而非逐个 deny：Windows 上的 shell 工具叫 PowerShell 不叫 Bash，按名字 deny 会漏。
+        // 默认只放 Skill（见 ClaudeRuntimeProperties.builtinTools）：技能正文要靠它按需加载，
+        // 压掉它 claude 会把技能广告整段从系统提示词里撤掉（等于技能体系瘫掉）；同时其余 20 多个
+        // 工具 schema 不进提示词，实测输入 token 从 23054 降到 5390 量级。
+        // 空串 = 一个都不给（fail closed），测评的 judge 会话走这条。
         command.add("--tools");
-        command.add("");
+        command.add(builtinTools == null ? "" : builtinTools);
         if (extraArgs != null) {
             command.addAll(extraArgs);
         }

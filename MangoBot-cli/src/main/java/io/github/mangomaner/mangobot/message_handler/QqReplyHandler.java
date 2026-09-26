@@ -4,6 +4,7 @@ import io.github.mangomaner.mangobot.adapter.onebot.model.event.message.OneBotMe
 import io.github.mangomaner.mangobot.adapter.onebot.model.segment.ImageSegment;
 import io.github.mangomaner.mangobot.adapter.onebot.model.segment.OneBotMessageSegment;
 import io.github.mangomaner.mangobot.adapter.onebot.model.segment.ReplySegment;
+import io.github.mangomaner.mangobot.adapter.onebot.utils.ChatEnvelope;
 import io.github.mangomaner.mangobot.adapter.onebot.utils.MessageLexer;
 import io.github.mangomaner.mangobot.annotation.PluginPriority;
 import io.github.mangomaner.mangobot.annotation.messageHandler.MangoBotEventListener;
@@ -19,9 +20,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
-import java.time.Instant;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -48,9 +46,6 @@ public class QqReplyHandler {
 
     /** messageId 去重窗口；只防"同一条被派发两次"，够用即可。 */
     private static final int SEEN_CACHE_SIZE = 512;
-
-    private static final DateTimeFormatter TIME_FORMAT =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final ChatInboxRegistry inboxRegistry;
 
@@ -121,15 +116,14 @@ public class QqReplyHandler {
         if (name == null || name.isBlank()) {
             name = String.valueOf(event.getUserId());
         }
-        String time = TIME_FORMAT.format(
-                Instant.ofEpochSecond(event.getTime()).atZone(ZoneId.systemDefault()));
-        return "[" + time + "] " + name + "(" + event.getUserId() + "): " + body;
+        String time = ChatEnvelope.formatTime(event.getTime());
+        return ChatEnvelope.render(time, name, event.getUserId(), body, (long) event.getMessageId());
     }
 
     /**
      * 只为 image 段查一次 {@code bot_files}，结果按段顺序去重。
      *
-     * <p>这一份同时供两处用：信封里的 {@code [图片: 描述]}，以及轮次里读字节送像素。
+     * <p>这一份同时供两处用：信封里的 {@code [图片#<fileId>: 描述]}，以及轮次里读字节送像素。
      * 查库本身与 {@code MessageStoreHandler} 在同一线程做的是同一类事，不引入新的风险类别。
      */
     private Map<String, BotFiles> loadImages(List<OneBotMessageSegment> segments) {

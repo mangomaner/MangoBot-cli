@@ -16,7 +16,23 @@
 
     <properties>
         <java.version>21</java.version>
+        <opentelemetry.version>1.59.0</opentelemetry.version>
     </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- OpenTelemetry：观测层的骨干（span / traceId / TRACEPARENT），见 module/agent/trace。
+                 BOM 必须显式 import——spring-boot-starter-parent 不管 io.opentelemetry，不钉版本各模块会漂。 -->
+            <dependency>
+                <groupId>io.opentelemetry</groupId>
+                <artifactId>opentelemetry-bom</artifactId>
+                <version>${opentelemetry.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
     <dependencies>
         <!-- Spring Boot Web -->
         <dependency>
@@ -102,6 +118,20 @@
             <groupId>org.java-websocket</groupId>
             <artifactId>Java-WebSocket</artifactId>
             <version>1.5.6</version>
+        </dependency>
+
+        <!-- OpenTelemetry SDK：观测层（module/agent/trace）的骨干。
+             只引 api + sdk（sdk 传递带入 sdk-common/trace/metrics/logs）。
+             刻意不引 opentelemetry-exporter-otlp：我们自己的 span 由 TraceSpanExporter 进程内直写
+             store，不走 HTTP——那样既省掉它带来的 okhttp/protobuf，也没有"自己上报给自己接收端"的自环。
+             将来要往 collector 送，是再加一个 exporter，不是改这里的选择。 -->
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-sdk</artifactId>
         </dependency>
     </dependencies>
     <build>

@@ -425,3 +425,41 @@ CREATE TABLE agent_skill_config (
     update_time DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+
+-- ============================================
+-- 模拟对话台
+-- ============================================
+
+-- 一次模拟对话 = 一组消息 + 对它的打分。不存用例、不存指标、不存通过与否。
+-- 注意：本项目没有迁移机制（SQLiteConfig 只在 DB 文件不存在时跑本文件），
+-- 所以老库要靠 SimSchema.init() 里的 CREATE TABLE IF NOT EXISTS 兜底，
+-- 两处定义必须逐字一致。
+CREATE TABLE IF NOT EXISTS sim_session (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    title         TEXT,                       -- 人读的标题
+    source        TEXT NOT NULL,              -- group / private
+    bot_id        TEXT NOT NULL,              -- 被测虚拟 bot 的号（保留号段）
+    chat_id       TEXT NOT NULL,              -- 虚拟群号 / 用户号（保留号段）
+    persona_label TEXT,                       -- 这轮测的是哪版人格
+    seed_ref      TEXT,                       -- 剧本的语料出处（只记来源）
+    status        TEXT NOT NULL,              -- running / scoring / done / failed
+    scores        TEXT,                       -- 各角度的分与原文证据（JSON 数组）
+    verdict       TEXT,                       -- judge 的一句话总评
+    create_time   DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS sim_message (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id  INTEGER NOT NULL,             -- 属于哪一场
+    seq         INTEGER NOT NULL,             -- 会话内顺序，从 1 开始
+    speaker     TEXT,                         -- 显示名
+    sender_id   TEXT,                         -- 发送者号
+    role        TEXT NOT NULL,                -- peer（剧本喂的）/ bot（bot 发出来的）
+    kind        TEXT NOT NULL,                -- text / image / meme
+    content     TEXT,                         -- 正文；图片/表情包是 fileId
+    reply_to    TEXT,                         -- bot 这条引用了哪条消息（没引用为 NULL）
+    at_ms       INTEGER,                      -- 会话内相对时间（毫秒）
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_sim_message_session ON sim_message (session_id, seq);

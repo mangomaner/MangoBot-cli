@@ -48,6 +48,8 @@ public class ClaudeSession {
     private final Supplier<Map<String, String>> endpointEnvSupplier;
     /** 能力相关的命令行参数（--plugin-dir / --mcp-config）；spawn 那一刻定死，改配置要重建会话。 */
     private final Supplier<List<String>> capabilityArgsSupplier;
+    /** claude 内置工具白名单（空格分隔）；空串=全禁。judge 会话要一个工具都不给，见 ClaudeRuntimeManager。 */
+    private final String builtinTools;
 
     private final Semaphore turnGate = new Semaphore(1);
     private final AtomicBoolean turnInFlight = new AtomicBoolean(false);
@@ -57,10 +59,14 @@ public class ClaudeSession {
     private volatile ClaudeProcess process;
     private volatile Sinks.Many<ClaudeEvent> currentSink;
 
+    /** 下次拉起时重建进程的标志，见 {@link #markStale()}。 */
+    private volatile boolean stale;
+
     public ClaudeSession(String key, Path binary, Path workingDir, Path configDir,
                          ClaudeRuntimeProperties properties,
                          Supplier<Map<String, String>> endpointEnvSupplier,
-                         Supplier<List<String>> capabilityArgsSupplier) {
+                         Supplier<List<String>> capabilityArgsSupplier,
+                         String builtinTools) {
         this.key = key;
         this.binary = binary;
         this.workingDir = workingDir;
@@ -68,6 +74,7 @@ public class ClaudeSession {
         this.properties = properties;
         this.endpointEnvSupplier = endpointEnvSupplier;
         this.capabilityArgsSupplier = capabilityArgsSupplier;
+        this.builtinTools = builtinTools;
     }
 
     public String key() {
@@ -164,6 +171,18 @@ public class ClaudeSession {
         return System.currentTimeMillis() - lastActivityMillis.get();
     }
 
+    /**
+     * 标记"下次拉起时重建进程"。
+     *
+     * <p>技能目录（{@code --plugin-dir}）与系统提示词（{@code --system-prompt} /
+     * {@code --append-system-prompt}）都是 spawn 那一刻定死的参数，改了配置对已在跑的进程没有任何影响，
+     * 所以改完技能或人格得让会话重建才生效。刻意不立刻关进程：正在跑的轮次不该被打断，
+     * 重建留给下一次 {@code ensureProcess()}（也就是下一轮对话）。
+     */
+    public void markStale() {
+        stale = true;
+    }
+
     /** stderr 尾部，供诊断把失败原因暴露出来。 */
     public List<String> stderrTail() {
         ClaudeProcess p = process;
@@ -195,6 +214,15 @@ public class ClaudeSession {
     // ========================================================================
 
     private synchronized void ensureProcess() {
+        if (stale) {
+            // 技能目录 / 系统提示词变了：那些都是 spawn 参数，进程起来那一刻就冻住了，只能换进程。
+            // 刻意不在这里之外的地方提前关——进行中的轮次不该被打断，重建留给下一次拉起（即下一轮）。
+            stale = false;
+            if (process != null && process.isAlive()) {
+                log.info("会话 {} 的技能/系统提示词有变更，重建进程", key);
+                close();
+            }
+        }
         if (process != null && process.isAlive()) {
             return;
         }
@@ -219,7 +247,7 @@ public class ClaudeSession {
         ClaudeProcess started;
         try {
             started = ClaudeProcess.start(binary, workingDir, configDir,
-                    endpointEnvSupplier.get(), args);
+                    endpointEnvSupplier.get(), args, builtinTools);
         } catch (IOException e) {
             throw new IllegalStateException("Failed to start claude process for session " + key, e);
         }

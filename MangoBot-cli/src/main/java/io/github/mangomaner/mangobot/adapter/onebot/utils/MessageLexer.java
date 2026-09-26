@@ -3,6 +3,7 @@ package io.github.mangomaner.mangobot.adapter.onebot.utils;
 import io.github.mangomaner.mangobot.adapter.onebot.model.segment.AtSegment;
 import io.github.mangomaner.mangobot.adapter.onebot.model.segment.ImageSegment;
 import io.github.mangomaner.mangobot.adapter.onebot.model.segment.OneBotMessageSegment;
+import io.github.mangomaner.mangobot.adapter.onebot.model.segment.ReplySegment;
 import io.github.mangomaner.mangobot.adapter.onebot.model.segment.TextSegment;
 
 import java.util.ArrayList;
@@ -17,17 +18,20 @@ import java.util.regex.Pattern;
  * <p>模型字面格式 = 普通文本 + 标记：
  * <pre>
  *   [@123]        @ 某人（只认纯数字 qq）
- *   [图片]        真实图片（模型看到的占位标记，真实像素由上层单独送达）
+ *   [图片#ab: 一只猫]  真实图片（信封形态：井号后是 fileId，冒号后是自动描述，供模型复读）
+ *   [图片]        真实图片但没有 fileId / 不是信封形态（模型看到的占位标记）
  *   [表情]        QQ 表情/贴纸（只有标记，拿不到真实像素）
  *   [image=ab]    数据集存储时的图片凭证（前端靠它出缩略图）
  * </pre>
  *
  * <p>约定：
  * <ul>
- *   <li>reply 不渲染进正文，由调用方从 segment 中单独提取（作为 replyToMessageId / replyToIndex）。</li>
+ *   <li>reply 渲染成 {@code [引用#&lt;id&gt;]} 标记：它表示"这条在对着上面某句说"，
+ *       是理解上下文必需的；被引用的正文不在这里展开。同时调用方仍会从 segment 里单独
+ *       提出 replyToMessageId，用于判断"引的是不是本批里的某条"。</li>
  *   <li>真实上传图（image）与 QQ 表情/贴纸（face）区分：前者是 {@code [图片]} 并送像素，后者是 {@code [表情]} 只有标记。</li>
  *   <li>其它未支持 segment 类型（视频/语音等）渲染为 {@code [类型]} 占位。</li>
- *   <li>图片不写入任何文字描述，只针对不同方向给出 {@code [图片]} 或 {@code [image=file]} 标记。</li>
+ *   <li>信封形态的图片带 fileId，模型据此调 {@code send_image} 复读；数据集形态给 {@code [image=file]}。</li>
  * </ul>
  */
 public final class MessageLexer {
@@ -38,7 +42,7 @@ public final class MessageLexer {
     }
 
     public enum RenderMode {
-        /** 模型可见的信封 / 风格注入：图片只给 {@code [图片]} 占位。 */
+        /** 模型可见的信封 / 风格注入：图片给 {@code [图片#<fileId>: 描述]}（id 供 send_image 复读）。 */
         ENVELOPE,
         /** 数据集存储：图片给 {@code [image=file_id]}，供前端展示。 */
         DATASET
@@ -52,8 +56,9 @@ public final class MessageLexer {
     /**
      * 将 segment 数组渲染成模型字面文本，可按 fileId 补上图片描述。
      *
-     * <p>{@code imageDescriber} 只在 {@link RenderMode#ENVELOPE} 下生效：返回非空时图片渲染成
-     * {@code [图片: <描述>]}，否则维持 {@code [图片]}。传 {@code null} 时行为与两参重载完全一致。
+     * <p>{@code imageDescriber} 只在 {@link RenderMode#ENVELOPE} 下生效：渲染成
+     * {@code [图片#<fileId>: <描述>]}，拿不到描述时是 {@code [图片#<fileId>]}，段里没有 fileId 时是
+     * {@code [图片]}。传 {@code null} 时行为与两参重载完全一致（只差有没有 id）。
      * 描述本身是入站时 {@code OneBotMessageFileProcessor} 已经存好的一份（VLM 摘要），这里只是去取。
      *
      * <p>{@link RenderMode#DATASET} 分支不受影响——那里给的是给前端出缩略图用的 file 凭证。
@@ -76,11 +81,21 @@ public final class MessageLexer {
                 case "at" -> renderAt((AtSegment) segment);
                 case "image" -> renderImage((ImageSegment) segment, mode, imageDescriber);
                 case "face" -> "[表情]"; // QQ 表情/贴纸：只给标记（拿不到像素），与真实图片 [图片] 区分
-                case "reply" -> ""; // reply 由调用方单独处理
+                // 引用是"这条在对着上面某句说"的标记。渲染出来（不渲染的话，那条被引用的老消息
+                // 不在本屏时，模型只看到一句没头没尾的话，会误当成新话题的开头）。
+                // 那个 id 与行尾的 [消息#id] 是同一套号，所以模型能回到上面去找它引的是哪句。
+                // 注意：被引用的那条<b>不在</b>本批时，它的正文不会出现在信封里，模型只能看到这个号。
+                case "reply" -> renderReply((ReplySegment) segment);
                 default -> renderOther(type);
             });
         }
         return result.toString();
+    }
+
+    /** 引用段：渲染成 {@code [引用#<消息id>]}；id 缺失时退化成一个光秃秃的 {@code [引用]}。 */
+    private static String renderReply(ReplySegment segment) {
+        String id = segment.getData() == null ? null : segment.getData().getId();
+        return id == null || id.isBlank() ? "[引用]" : "[引用#" + id + "]";
     }
 
     /** 将模型字面文本解析成 segment 数组（发送方向）。只认 {@code [@数字]}，非数字抛 {@link MessageLexerException}。 */
@@ -128,10 +143,17 @@ public final class MessageLexer {
         if (mode == RenderMode.DATASET && file != null && !file.isEmpty()) {
             return "[image=" + file + "]";
         }
-        String description = imageDescriber == null || file == null || file.isEmpty()
-                ? null : imageDescriber.apply(file);
+        if (mode != RenderMode.ENVELOPE) {
+            return "[图片]";
+        }
+        if (file == null || file.isEmpty()) {
+            return "[图片]";
+        }
+
+        // 信封里带上 fileId：模型据此才能把"上面那张图"原样发回去（send_image 收的就是这串 id）。
+        String description = imageDescriber == null ? null : imageDescriber.apply(file);
         String cleaned = description == null ? "" : normalizeDescription(description);
-        return cleaned.isEmpty() ? "[图片]" : "[图片: " + cleaned + "]";
+        return cleaned.isEmpty() ? "[图片#" + file + "]" : "[图片#" + file + ": " + cleaned + "]";
     }
 
     /**

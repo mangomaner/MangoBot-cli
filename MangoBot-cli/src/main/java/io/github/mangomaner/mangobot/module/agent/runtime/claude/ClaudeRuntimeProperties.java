@@ -29,6 +29,8 @@ import java.util.List;
  *     group-debounce-millis: 1000
  *     session-idle-minutes: 30
  *     max-sessions: 16
+ *     max-system-prompt-chars: 8000
+ *     builtin-tools: Skill    # claude 内置工具白名单（空格分隔）；空串=全禁
  *     extra-args: []
  * </pre>
  */
@@ -78,6 +80,26 @@ public class ClaudeRuntimeProperties {
 
     /** 常驻会话数上限，超出按最久未用淘汰；0 或负数表示不限 */
     private int maxSessions = 16;
+
+    /** 系统提示词的字符数上限（0 或负数表示不限）；超长截断并打 warn。 */
+    private int maxSystemPromptChars = 8000;
+
+    /**
+     * 允许模型使用的 claude <b>内置</b>工具，空格分隔的白名单；空串表示一个都不给。
+     *
+     * <p>默认只给 {@code Skill}。原因有两条，缺一不可：
+     * <ol>
+     *   <li>技能正文只能靠 {@code Skill} 工具按需加载（{@code --plugin-dir} 只递目录、不注入正文）。
+     *       一旦压掉它，claude 会认为 skill 机制不可用，<b>把技能广告整段从系统提示词里撤掉</b>，
+     *       等于所有 SKILL.md 都"点不动"。</li>
+     *   <li>其余 20 多个工具 schema（Bash/Read/Write…）对本项目毫无用处——bot 的出口是 MCP 工具，
+     *       不是 shell。带上它们白烧输入 token（实测 5390 → 23054 量级）。</li>
+     * </ol>
+     *
+     * <p>注意这与 {@code --allowedTools}（权限名单）是两件事：那个管"放不放行"，这个管"存不存在"。
+     * 改这里的值必须重启（spawn 参数是冻的）。
+     */
+    private String builtinTools = "Skill";
 
     /** 追加到命令行末尾的额外参数 */
     private List<String> extraArgs = new ArrayList<>();

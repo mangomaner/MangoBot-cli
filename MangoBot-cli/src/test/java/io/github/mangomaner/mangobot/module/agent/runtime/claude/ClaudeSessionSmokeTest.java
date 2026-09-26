@@ -45,7 +45,7 @@ class ClaudeSessionSmokeTest {
                 "未提供 ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN / ANTHROPIC_MODEL，跳过");
 
         ClaudeSession session = new ClaudeSession("junit:smoke", binary.get(), workingDir, configDir,
-                properties, () -> endpointEnv, List::of);
+                properties, () -> endpointEnv, List::of, properties.getBuiltinTools());
         try {
             List<ClaudeEvent> events = session.sendTurn("Reply with exactly the word: PONG")
                     .collectList()

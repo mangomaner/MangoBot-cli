@@ -159,11 +159,14 @@ public record ClaudeEvent(JsonNode payload, long receivedAtMillis) {
     /**
      * 增量文本在 {@code payload.event.delta} 下——注意<b>不在</b> {@code payload.message.content}，
      * 所以 {@link #assistantText()} 这类按 {@code message.content} 取块的方法对 {@code stream_event}
-     * 一律返回空串。实测形状（v2.1.128）：
+     * 一律返回空串。实测形状（v2.1.128 与 v2.1.282 一致）：
      * <pre>
      * {"type":"stream_event",
      *  "event":{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"P"}},…}
      * </pre>
+     *
+     * <p>升级到 v2.1.282 后复核过 {@code delta.type} 的四种取值都还在：
+     * {@code text_delta} / {@code thinking_delta} / {@code signature_delta} / {@code input_json_delta}。
      */
     private String deltaField(String field) {
         return payload.path("event").path("delta").path(field).asText("");

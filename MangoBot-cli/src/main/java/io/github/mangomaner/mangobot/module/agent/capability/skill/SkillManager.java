@@ -231,15 +231,8 @@ public class SkillManager {
             SkillMetadata metadata = parseSkillMetadata(content);
             
             AgentSkillConfig config = skillConfigService.getBySkillPath(skillPathName);
-            
             if (config == null) {
-                config = new AgentSkillConfig();
-                config.setSkillPath(skillPathName);
-                config.setEnabled(false);
-                // 默认支持所有来源
-                String allSourcesJson = buildAllSourcesJson();
-                config.setEnabledList(allSourcesJson);
-                config.setAvailableList(allSourcesJson);
+                config = newConfig(skillPathName, metadata);
             }
 
             config.setSkillName(metadata.name);
@@ -247,13 +240,30 @@ public class SkillManager {
             if (metadata.boundToolIds != null && !metadata.boundToolIds.isEmpty()) {
                 config.setBoundToolIds(objectMapper.writeValueAsString(metadata.boundToolIds));
             }
-            
+
             skillConfigService.saveOrUpdate(config);
             log.info("Skill synced: {}", skillPathName);
-            
+
         } catch (IOException e) {
             log.error("Failed to read skill file: {}", skillMdPath, e);
         }
+    }
+
+    /**
+     * 新建一条技能配置：默认支持所有来源，**声明了 {@code layer} 的内置技能默认启用**。
+     *
+     * <p>为什么系统层技能要默认开：persona 是 bot 行为的地基，新装环境里它要是关着的，bot 就没有人格
+     * 也没有参与纪律（技能页上看起来一切正常）。这与 {@code registerBuiltinTool} 对新增内置工具的处理
+     * 一致——只有新建这一次置 true；行一旦存在，用户在技能页的开关就说了算，同步不再碰它。
+     */
+    private AgentSkillConfig newConfig(String skillPathName, SkillMetadata metadata) {
+        AgentSkillConfig config = new AgentSkillConfig();
+        config.setSkillPath(skillPathName);
+        config.setEnabled(metadata.layer != null && !metadata.layer.isBlank());
+        String allSourcesJson = buildAllSourcesJson();
+        config.setEnabledList(allSourcesJson);
+        config.setAvailableList(allSourcesJson);
+        return config;
     }
 
     /**
@@ -384,12 +394,7 @@ public class SkillManager {
 
         AgentSkillConfig config = skillConfigService.getBySkillPath(skillPathName);
         if (config == null) {
-            config = new AgentSkillConfig();
-            config.setSkillPath(skillPathName);
-            config.setEnabled(false);
-            String allSourcesJson = buildAllSourcesJson();
-            config.setEnabledList(allSourcesJson);
-            config.setAvailableList(allSourcesJson);
+            config = newConfig(skillPathName, metadata);
         }
 
         config.setSkillName(metadata.name != null ? metadata.name : skillPathName);
@@ -433,6 +438,10 @@ public class SkillManager {
                                 return Integer.parseInt(String.valueOf(obj));
                             })
                             .collect(Collectors.toList());
+                }
+                Object layerObj = data.get("layer");
+                if (layerObj != null) {
+                    metadata.layer = String.valueOf(layerObj).trim();
                 }
             }
         }
@@ -506,6 +515,8 @@ public class SkillManager {
         String name;
         String description;
         List<Integer> boundToolIds;
+        /** frontmatter 里的 {@code layer}：非空表示这是随项目内置的技能（如 persona / slang），默认启用 */
+        String layer;
     }
 
     /**

@@ -9,6 +9,7 @@ import io.github.mangomaner.mangobot.module.agent.capability.tool.builtin.DateTi
 import io.github.mangomaner.mangobot.module.agent.core.AgentWorkspaceManager;
 import io.github.mangomaner.mangobot.module.agent.model.enums.SessionSource;
 import io.github.mangomaner.mangobot.module.agent.runtime.claude.ClaudeRuntimeManager;
+import io.github.mangomaner.mangobot.module.agent.sim.service.SimSchema;
 import io.github.mangomaner.mangobot.message_handler.response.tools.QqReplyTool;
 import io.github.mangomaner.mangobot.plugin.core.PluginManager;
 import lombok.extern.slf4j.Slf4j;
@@ -36,8 +37,7 @@ import java.util.stream.Collectors;
  *    [3/7] Skill 同步
  *    [4/7] 插件加载
  *    [5/7] Java 工具注册与 MCP server 初始化
- *    [6/7] Claude 运行时初始化
- *    [7/7] WebSocket 服务器启动
+ *    [6/6] Claude 运行时初始化 + WebSocket 服务器启动
  * 4. 各 Bot 的 Claude 会话按需懒启动（ClaudeRuntimeManager）
  */
 @SpringBootApplication(exclude = {RedisAutoConfiguration.class})
@@ -58,6 +58,7 @@ public class MangoBotApplication {
         PluginManager pluginManager = context.getBean(PluginManager.class);
         JavaToolMcpServer javaToolMcpServer = context.getBean(JavaToolMcpServer.class);
         ClaudeRuntimeManager claudeRuntimeManager = context.getBean(ClaudeRuntimeManager.class);
+        SimSchema simSchema = context.getBean(SimSchema.class);
 
         apiManager.init();
         log.info("[1/7] 静态 API 初始化完成");
@@ -70,6 +71,10 @@ public class MangoBotApplication {
 
         pluginManager.init();
         log.info("[4/7] 插件加载完成");
+
+        // 兜底建模拟台两张表：本项目没有迁移机制，schema.sql 只在 DB 文件不存在时执行，
+        // 老库拿不到这两张表就只能靠这里
+        simSchema.init();
 
         // 内置工具先落进 agent_java_tool_config，MCP server 再按「启用的」挂上去。
         // 放在插件加载之后：插件在 init 里经 MangoToolApi 注册的工具也要一起被看见。

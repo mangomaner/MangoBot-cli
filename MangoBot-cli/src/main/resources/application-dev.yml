@@ -16,3 +16,10 @@ spring:
 logging:
   level:
     io.github.mangomaner.mangobot: INFO
+
+mangobot:
+  claude:
+    # claude 内置工具白名单（空格分隔）。默认也是 Skill，这里显式写出来是因为它是"技能能不能用"的总闸：
+    # Skill 工具一旦不给，claude 会把技能广告整段从系统提示词里撤掉，所有 SKILL.md 都点不动。
+    # 不给其它内置工具（Bash/Read/Write…）：bot 的出口是 MCP 工具，那些 schema 白烧 token。
+    builtin-tools: Skill

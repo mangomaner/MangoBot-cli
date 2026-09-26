@@ -88,13 +88,28 @@ public class ChatInboxRegistry {
                 } catch (Exception e) {
                     log.error("轮次执行失败：{}", target.sessionKey(), e);
                 } finally {
-                    inbox.onTurnFinished();
+                    finishTurn(inbox, target);
                 }
             });
         } catch (RejectedExecutionException e) {
             log.warn("轮次池已满，丢弃这一批 {} 条消息：{}", batch.size(), target.sessionKey());
-            inbox.onTurnFinished();
+            finishTurn(inbox, target);
         }
+    }
+
+    /**
+     * 一轮的收尾，两条路径（正常跑完 / 池满丢弃）都必须走到。
+     *
+     * <p>放在这一层而不是 {@code ChatTurnRunner} 的 finally 里：后者在"取会话失败"时提前 return，
+     * 把整个 finally 跳过了（会话没了就没人喊）。这里是"把这一批交出去"的收尾，无论轮次内部怎么结束
+     * 都会到，且每个会话每轮恰好一次。
+     *
+     * <p>先喊 {@link TurnSignal#finished} 再 {@code onTurnFinished}：等的那个线程一被唤醒就去
+     * 取这一轮的发言，先放行它更贴合"这一轮到此为止"的语义（发言的记录早于信号，由 echo 往返保证）。
+     */
+    private void finishTurn(ChatInbox inbox, ChatTarget target) {
+        TurnSignal.finished(target.sessionKey());
+        inbox.onTurnFinished();
     }
 
     @PreDestroy

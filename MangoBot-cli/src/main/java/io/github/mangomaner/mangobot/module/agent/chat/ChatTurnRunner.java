@@ -64,8 +64,7 @@ public class ChatTurnRunner {
 
         List<ClaudeImage> images = collectImages(batch);
         String text = buildEnvelope(batch);
-        TurnContext context = TurnContext.of(target.botId(), target.source(), target.targetId(),
-                batch.get(batch.size() - 1).messageId());
+        TurnContext context = TurnContext.of(target.botId(), target.source(), target.targetId());
 
         TurnContextRegistry.begin(sessionKey, context);
         try {
@@ -192,6 +191,9 @@ public class ChatTurnRunner {
      * 一轮结束记一行 INFO：{@code subtype} / 发送条数 / 图片张数 / 正文长度。
      *
      * <p>"bot 不理我"就是靠这行查的：{@code subtype != success} 且一条都没发，说明这轮本身就失败了。
+     *
+     * <p>顺手把模型直接吐在正文里的字交给 {@link TurnSignal}：群聊里它本该调工具说话，正文非空
+     * 是要看的信号。非模拟会话是空操作。
      */
     private void summarize(String sessionKey, List<ClaudeEvent> events, TurnContext context, int imageCount) {
         if (events == null) {
@@ -199,11 +201,19 @@ public class ChatTurnRunner {
             return;
         }
         String subtype = "";
+        StringBuilder assistantText = new StringBuilder();
         for (ClaudeEvent event : events) {
             if (event.isResult()) {
                 subtype = event.resultSubtype();
+            } else if (event.isAssistant()) {
+                String text = event.assistantText();
+                if (text != null && !text.isBlank()) {
+                    assistantText.append(text);
+                }
             }
         }
+        TurnSignal.noteAssistantText(sessionKey, assistantText.toString());
+
         int sends = context.sends().get();
         String summary = String.format("轮次结束：session=%s subtype=%s 发送=%d 图片=%d",
                 sessionKey, subtype, sends, imageCount);
