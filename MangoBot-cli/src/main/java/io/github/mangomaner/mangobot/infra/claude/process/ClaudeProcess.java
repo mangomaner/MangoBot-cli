@@ -1,4 +1,8 @@
-package io.github.mangomaner.mangobot.module.agent.runtime.claude;
+package io.github.mangomaner.mangobot.infra.claude.process;
+
+import io.github.mangomaner.mangobot.infra.claude.ClaudeRuntimeProperties;
+import io.github.mangomaner.mangobot.infra.claude.session.ClaudeEvent;
+import io.github.mangomaner.mangobot.infra.claude.session.ClaudeSession;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;

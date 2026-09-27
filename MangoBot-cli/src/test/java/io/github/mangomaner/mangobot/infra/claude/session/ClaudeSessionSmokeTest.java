@@ -1,10 +1,16 @@
-package io.github.mangomaner.mangobot.module.agent.runtime.claude;
+package io.github.mangomaner.mangobot.infra.claude.session;
 
+import io.github.mangomaner.mangobot.infra.claude.ClaudeRuntimeProperties;
+import io.github.mangomaner.mangobot.infra.claude.process.ClaudeBinaryResolver;
+import io.github.mangomaner.mangobot.infra.claude.process.ClaudeConfigSeeder;
+import io.github.mangomaner.mangobot.infra.claude.spec.ClaudeSessionSpec;
+import io.github.mangomaner.mangobot.infra.claude.workspace.ClaudeWorkspace;
 import io.github.mangomaner.mangobot.utils.FileUtils;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -26,6 +32,8 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 @Disabled("需要真实 claude 二进制与登录态，默认关闭")
 class ClaudeSessionSmokeTest {
 
+    private static final String SESSION_KEY = "junit:smoke";
+
     @Test
     void returnsFullAssistantTextWithinOneTurn() {
         ClaudeRuntimeProperties properties = new ClaudeRuntimeProperties();
@@ -34,10 +42,11 @@ class ClaudeSessionSmokeTest {
         Optional<Path> binary = ClaudeBinaryResolver.resolve(properties);
         assumeTrue(binary.isPresent(), "未找到 claude 二进制，跳过。查找顺序见 ClaudeBinaryResolver");
 
-        // 与会话的布局一致：config 目录在工作目录里面（共享的那份已随持久化改造取消）
-        Path workingDir = FileUtils.getBaseDirectory().resolve("data/claude-work/junit-smoke");
-        Path configDir = workingDir.resolve("claude-config");
-        ClaudeConfigSeeder.seed(configDir, workingDir);
+        // 与会话的布局一致：工作区根目录 + 每个 key 一个子目录，claude 家目录在它里面
+        ClaudeWorkspace workspace = new ClaudeWorkspace(
+                FileUtils.getBaseDirectory().resolve("data/claude-work"));
+        workspace.ensure(SESSION_KEY);
+        ClaudeConfigSeeder.seed(workspace.configDirOf(SESSION_KEY), workspace.dirOf(SESSION_KEY));
 
         // 端点凭据平时由 ClaudeRuntimeManager 在 spawn 时从「模型设置」现取；这里没起 Spring，
         // 就直接读它注入的同名环境变量，没配齐当没有登录态跳过（和二进制缺失一个处理）。
@@ -45,10 +54,13 @@ class ClaudeSessionSmokeTest {
         assumeTrue(endpointEnv != null,
                 "未提供 ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN / ANTHROPIC_MODEL，跳过");
 
-        // 最后一个参数是不续会话（false）：冒烟测的是"进程能起来、能回一轮"，续上历史只会让这一轮
-        // 多背一段没用的上下文。
-        ClaudeSession session = new ClaudeSession("junit:smoke", binary.get(), workingDir, configDir,
-                properties, () -> endpointEnv, List::of, properties.getBuiltinTools(), false);
+        // 一个工具、一个插件、一条 MCP 连接都不给，也不续会话：冒烟测的是"进程能起来、能回一轮"，
+        // 多给东西只会让这一轮多背一段没用的上下文。
+        ClaudeSessionSpec spec = new ClaudeSessionSpec(
+                List.of(), List.of(), List.of(), false, null, null, endpointEnv,
+                false, Duration.ofSeconds(120), List.of());
+        ClaudeSession session = new ClaudeSession(SESSION_KEY, "smoke", binary.get(), workspace, properties,
+                () -> spec);
         try {
             List<ClaudeEvent> events = session.sendTurn("Reply with exactly the word: PONG")
                     .collectList()

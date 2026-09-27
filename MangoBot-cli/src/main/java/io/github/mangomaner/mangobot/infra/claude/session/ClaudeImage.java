@@ -1,4 +1,4 @@
-package io.github.mangomaner.mangobot.module.agent.runtime.claude;
+package io.github.mangomaner.mangobot.infra.claude.session;
 
 /**
  * 要送给 claude 的一张图，已是可直接进 content block 的形状。

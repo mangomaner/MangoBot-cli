@@ -6,7 +6,7 @@ import io.github.mangomaner.mangobot.module.agent.chat.ChatTarget;
 import io.github.mangomaner.mangobot.module.agent.chat.TurnSignal;
 import io.github.mangomaner.mangobot.module.agent.model.enums.SessionSource;
 import io.github.mangomaner.mangobot.module.agent.runtime.claude.ClaudeRuntimeManager;
-import io.github.mangomaner.mangobot.module.agent.runtime.claude.ClaudeRuntimeProperties;
+import io.github.mangomaner.mangobot.infra.claude.ClaudeRuntimeProperties;
 import io.github.mangomaner.mangobot.module.agent.sim.harness.SimBotProfile;
 import io.github.mangomaner.mangobot.module.agent.sim.harness.SimFrames;
 import io.github.mangomaner.mangobot.module.agent.sim.harness.SimImageIndex;

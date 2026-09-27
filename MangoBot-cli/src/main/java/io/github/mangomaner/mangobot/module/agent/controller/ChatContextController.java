@@ -1,6 +1,6 @@
 package io.github.mangomaner.mangobot.module.agent.controller;
 
-import io.github.mangomaner.mangobot.module.agent.chat.ChatTarget;
+import io.github.mangomaner.mangobot.module.agent.chat.SessionKeys;
 import io.github.mangomaner.mangobot.module.agent.model.enums.SessionSource;
 import io.github.mangomaner.mangobot.module.agent.runtime.claude.ClaudeRuntimeManager;
 import io.github.mangomaner.mangobot.system.common.BaseResponse;
@@ -44,7 +44,8 @@ public class ChatContextController {
                     + "（可选 web / group / private）");
         }
 
-        String sessionKey = new ChatTarget(request.botId(), source, request.targetId()).sessionKey();
+        String sessionKey = SessionKeys.of(source, String.valueOf(request.botId()),
+                String.valueOf(request.targetId()));
         boolean closed = runtimeManager.resetSession(sessionKey);
         log.info("清空上下文请求：sessionKey={} 关掉了在跑的进程={}", sessionKey, closed);
         return ResultUtils.success(new ResetVO(sessionKey, closed));

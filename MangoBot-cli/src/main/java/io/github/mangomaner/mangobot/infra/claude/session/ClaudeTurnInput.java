@@ -1,4 +1,4 @@
-package io.github.mangomaner.mangobot.module.agent.runtime.claude;
+package io.github.mangomaner.mangobot.infra.claude.session;
 
 import java.util.List;
 

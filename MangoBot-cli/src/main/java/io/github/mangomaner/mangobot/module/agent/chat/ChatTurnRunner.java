@@ -2,14 +2,14 @@ package io.github.mangomaner.mangobot.module.agent.chat;
 
 import io.github.mangomaner.mangobot.module.agent.capability.tool.TurnContext;
 import io.github.mangomaner.mangobot.module.agent.capability.tool.TurnContextRegistry;
-import io.github.mangomaner.mangobot.module.agent.runtime.claude.ClaudeEvent;
+import io.github.mangomaner.mangobot.infra.claude.session.ClaudeEvent;
 import io.github.mangomaner.mangobot.api.MangoConfigApi;
 import io.github.mangomaner.mangobot.module.agent.context.ContextAnalysisService;
-import io.github.mangomaner.mangobot.module.agent.runtime.claude.ClaudeImage;
+import io.github.mangomaner.mangobot.infra.claude.session.ClaudeImage;
 import io.github.mangomaner.mangobot.module.agent.runtime.claude.ClaudeRuntimeManager;
-import io.github.mangomaner.mangobot.module.agent.runtime.claude.ClaudeRuntimeProperties;
-import io.github.mangomaner.mangobot.module.agent.runtime.claude.ClaudeSession;
-import io.github.mangomaner.mangobot.module.agent.runtime.claude.ClaudeTurnInput;
+import io.github.mangomaner.mangobot.infra.claude.ClaudeRuntimeProperties;
+import io.github.mangomaner.mangobot.infra.claude.session.ClaudeSession;
+import io.github.mangomaner.mangobot.infra.claude.session.ClaudeTurnInput;
 import io.github.mangomaner.mangobot.module.file.model.domain.BotFiles;
 import io.github.mangomaner.mangobot.utils.FileUtils;
 import lombok.RequiredArgsConstructor;
@@ -51,6 +51,7 @@ public class ChatTurnRunner {
     private final ClaudeRuntimeManager runtimeManager;
     private final ContextAnalysisService analysisService;
     private final ClaudeRuntimeProperties properties;
+    private final ChatTurnProperties chatProperties;
     private final TurnControlRegistry turnControls;
 
     /**
@@ -214,7 +215,7 @@ public class ChatTurnRunner {
      * 缺失 / 路径为空 / 扩展名不认识 / 超过上限的一律跳过并告警，不打断这一轮。
      */
     private List<ClaudeImage> collectImages(List<IncomingLine> batch) {
-        int limit = properties.getMaxImagesPerTurn();
+        int limit = chatProperties.getMaxImagesPerTurn();
         if (limit <= 0) {
             return List.of();
         }

@@ -1,5 +1,6 @@
-package io.github.mangomaner.mangobot.module.agent.runtime.claude;
+package io.github.mangomaner.mangobot.infra.claude.process;
 
+import io.github.mangomaner.mangobot.infra.claude.ClaudeRuntimeProperties;
 import io.github.mangomaner.mangobot.utils.FileUtils;
 import lombok.extern.slf4j.Slf4j;
 

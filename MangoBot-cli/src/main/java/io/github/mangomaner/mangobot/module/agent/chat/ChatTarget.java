@@ -25,9 +25,9 @@ public record ChatTarget(long botId, SessionSource source, long targetId) {
      * 会话键，与 claude 会话键、MCP 请求头里的会话标识是同一个值。
      *
      * <p>形如 {@code 12345:group:67890}。tools 侧靠它从轮次注册表里找回上下文，
-     * 所以这三处必须是同一个字符串——改了这里要同步改。
+     * 所以这三处必须是同一个字符串——拼法统一在 {@link SessionKeys}。
      */
     public String sessionKey() {
-        return botId + ":" + runtimeSourceKey();
+        return SessionKeys.qq(botId, source, targetId);
     }
 }

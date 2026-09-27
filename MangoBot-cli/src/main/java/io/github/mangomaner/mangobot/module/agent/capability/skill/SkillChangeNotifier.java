@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.util.Map;
 import java.util.function.Predicate;
 
 /**
@@ -93,26 +94,13 @@ public class SkillChangeNotifier {
         if (controlText == null) {
             return;
         }
-        for (String sessionKey : claudeRuntimeManager.sessionStatus().keySet()) {
-            SessionSource source = sourceOf(sessionKey);
-            if (source == null || !sourceFilter.test(source)) {
+        // 来源由 manager 记着，不从会话键里切——键怎么拼是 infra 与 SessionKeys 的事
+        for (Map.Entry<String, SessionSource> entry : claudeRuntimeManager.runningSources().entrySet()) {
+            if (!sourceFilter.test(entry.getValue())) {
                 continue;
             }
-            turnControlRegistry.appendOnce(sessionKey,
+            turnControlRegistry.appendOnce(entry.getKey(),
                     new TurnControl("skill:" + subjectPath, controlText));
-        }
-    }
-
-    /** 会话键形如 {@code botId:source:chatId}；取不出合法来源（例如 dev 会话）就返回 null。 */
-    private static SessionSource sourceOf(String sessionKey) {
-        String[] parts = sessionKey.split(":");
-        if (parts.length < 2) {
-            return null;
-        }
-        try {
-            return SessionSource.fromKey(parts[1]);
-        } catch (IllegalArgumentException e) {
-            return null;
         }
     }
 

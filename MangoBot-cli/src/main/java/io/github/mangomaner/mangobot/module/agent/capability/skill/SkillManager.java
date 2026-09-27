@@ -3,6 +3,8 @@ package io.github.mangomaner.mangobot.module.agent.capability.skill;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.mangomaner.mangobot.infra.claude.skill.ClaudeSkillRegistry;
+import io.github.mangomaner.mangobot.infra.claude.skill.ClaudeSkillScope;
 import io.github.mangomaner.mangobot.module.agent.model.domain.AgentSkillConfig;
 import io.github.mangomaner.mangobot.module.agent.model.enums.SessionSource;
 import io.github.mangomaner.mangobot.module.agent.model.vo.SkillFileNodeVO;
@@ -82,6 +84,7 @@ public class SkillManager {
     private static final String SOURCE_PLUGIN_ROOT = "data/capabilities/plugins";
 
     private final AgentSkillConfigService skillConfigService;
+    private final ClaudeSkillRegistry skillRegistry;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     /**
@@ -182,6 +185,10 @@ public class SkillManager {
                 }
                 log.info("来源插件目录已重建：source={} dir={} skills={}",
                         source.getSourceKey(), target, copied);
+                // 登记到技能映射表；目录建好了才登记，免得会话拿到一个还不存在的路径
+                skillRegistry.put(
+                        new ClaudeSkillScope(ClaudeSkillScope.Level.GLOBAL, source.getSourceKey()),
+                        List.of(target));
             } catch (IOException e) {
                 log.error("重建来源插件目录失败：source={} dir={}", source.getSourceKey(), target, e);
             }

@@ -21,7 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>不需要数据库：{@code getSqlSegment()} 只是把 wrapper 里的条件拼成 WHERE 片段。
  */
-class UsableFavoriteMemesQueryTest {
+class FavoriteMemesQueryTest {
 
     /**
      * {@code LambdaQueryWrapper} 要把方法引用解析成列名，得先有实体的 lambda 缓存；
@@ -35,7 +35,7 @@ class UsableFavoriteMemesQueryTest {
     }
 
     private String sql() {
-        LambdaQueryWrapper<BotFiles> wrapper = BotFilesServiceImpl.usableFavoriteMemesWrapper();
+        LambdaQueryWrapper<BotFiles> wrapper = BotFilesServiceImpl.favoriteMemesWrapper();
         return wrapper.getSqlSegment();
     }
 
@@ -52,23 +52,20 @@ class UsableFavoriteMemesQueryTest {
     }
 
     @Test
-    @DisplayName("描述与本地文件路径都不能为空")
-    void filtersOutBlankDescriptionAndPath() {
+    @DisplayName("本地文件不能为空（没落地就发不出去）")
+    void filtersOutBlankPath() {
         String sql = sql();
-        assertTrue(sql().contains("description"), "缺少 description 条件：" + sql);
         assertTrue(sql().contains("file_path"), "缺少 file_path 条件：" + sql);
+        assertTrue(sql().split("file_path", -1).length - 1 >= 2, "file_path 应有两道条件：" + sql);
     }
 
+    /**
+     * 有意不要求描述。描述是"模型看不了图"时代的替代品，现在模型直接看图，
+     * 要求描述只会把人工收藏的图挡在外面（实测收藏的 13 张全都没描述，池子直接空了）。
+     */
     @Test
-    @DisplayName("五个条件同时在，缺一不可")
-    void hasAllConditions() {
-        String sql = sql();
-        long conditions = java.util.Arrays.stream(new String[]{"file_type", "favorite", "description", "file_path"})
-                .filter(sql::contains)
-                .count();
-        assertTrue(conditions == 4, "条件不全，只匹配到 " + conditions + " 个：" + sql);
-        // description 与 file_path 各出现两次（isNotNull + ne）
-        assertTrue(sql().split("file_path", -1).length - 1 >= 2, "file_path 条件不止一个：" + sql);
-        assertFalse(sql().isBlank());
+    @DisplayName("不要求描述——要求了会把没描述的收藏全挡在外面")
+    void doesNotRequireDescription() {
+        assertFalse(sql().contains("description"), "不该有 description 条件：" + sql());
     }
 }

@@ -1,4 +1,10 @@
-package io.github.mangomaner.mangobot.module.agent.runtime.claude;
+package io.github.mangomaner.mangobot.infra.claude.session;
+
+import io.github.mangomaner.mangobot.infra.claude.ClaudeRuntimeProperties;
+import io.github.mangomaner.mangobot.infra.claude.process.ClaudeConfigSeeder;
+import io.github.mangomaner.mangobot.infra.claude.process.ClaudeProcess;
+import io.github.mangomaner.mangobot.infra.claude.spec.ClaudeSessionSpec;
+import io.github.mangomaner.mangobot.infra.claude.workspace.ClaudeWorkspace;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -40,23 +46,19 @@ public class ClaudeSession {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final String key;
-    private final Path binary;
-    private final Path workingDir;
-    private final Path configDir;
-    private final ClaudeRuntimeProperties properties;
-    /** 每次拉起进程时现取端点环境变量；由 {@code ClaudeRuntimeManager} 提供，读「模型设置」的主模型。 */
-    private final Supplier<Map<String, String>> endpointEnvSupplier;
-    /** 能力相关的命令行参数（--plugin-dir / --mcp-config）；spawn 那一刻定死，改配置要重建会话。 */
-    private final Supplier<List<String>> capabilityArgsSupplier;
-    /** claude 内置工具白名单（空格分隔）；空串=全禁。judge 会话要一个工具都不给，见 ClaudeRuntimeManager。 */
-    private final String builtinTools;
     /**
-     * 拉起进程时要不要续上这个工作目录里最近的一次对话（{@code -c}）。
+     * 会话池名：常驻上限按池分算。
      *
-     * <p>正常聊天会话为 {@code true}——重启、改技能重建进程之后，上下文都还在。judge / 探针 / 一次性
-     * 会话为 {@code false}：它们每次都必须从干净的上下文开始。
+     * <p>不分池的话，两类 agent 共用一份预算，忙的那个会把另一个的会话挤掉——
+     * 而挤掉 = 上下文静默丢失，用户只会觉得"bot 突然失忆了"。
      */
-    private final boolean resumeSession;
+    private final String pool;
+    private final Path binary;
+    private final ClaudeWorkspace workspace;
+    private final ClaudeRuntimeProperties properties;
+    // 每次拉起进程时现取"这个会话被配置成什么样"。用 Supplier 而非实体值：技能目录、端点、工具面
+    // 都会变，而这些参数 spawn 那刻就冻住了，改完要让会话重建才生效（见 markStale）
+    private final Supplier<ClaudeSessionSpec> specSupplier;
 
     private final Semaphore turnGate = new Semaphore(1);
     private final AtomicBoolean turnInFlight = new AtomicBoolean(false);
@@ -69,24 +71,26 @@ public class ClaudeSession {
     /** 下次拉起时重建进程的标志，见 {@link #markStale()}。 */
     private volatile boolean stale;
 
-    public ClaudeSession(String key, Path binary, Path workingDir, Path configDir,
+    // 最后一次 spawn 用的单轮超时；还没起过进程时为空，回落到全局配置
+    private volatile Duration turnTimeout;
+
+    public ClaudeSession(String key, String pool, Path binary, ClaudeWorkspace workspace,
                          ClaudeRuntimeProperties properties,
-                         Supplier<Map<String, String>> endpointEnvSupplier,
-                         Supplier<List<String>> capabilityArgsSupplier,
-                         String builtinTools, boolean resumeSession) {
+                         Supplier<ClaudeSessionSpec> specSupplier) {
         this.key = key;
+        this.pool = pool;
         this.binary = binary;
-        this.workingDir = workingDir;
-        this.configDir = configDir;
+        this.workspace = workspace;
         this.properties = properties;
-        this.endpointEnvSupplier = endpointEnvSupplier;
-        this.capabilityArgsSupplier = capabilityArgsSupplier;
-        this.builtinTools = builtinTools;
-        this.resumeSession = resumeSession;
+        this.specSupplier = specSupplier;
     }
 
     public String key() {
         return key;
+    }
+
+    public String pool() {
+        return pool;
     }
 
     /** 预拉进程（幂等）。仅供 warmup 或 smoke 端点显式调用；正常路径是首轮懒启动。 */
@@ -145,8 +149,12 @@ public class ClaudeSession {
             return Flux.error(new IllegalStateException("Failed to write turn to claude process for " + key, e));
         }
 
+        Duration timeout = turnTimeout;
+        if (timeout == null) {
+            timeout = Duration.ofSeconds(properties.getTurnTimeoutSeconds());
+        }
         return sink.asFlux()
-                .timeout(Duration.ofSeconds(properties.getTurnTimeoutSeconds()))
+                .timeout(timeout)
                 .doOnError(e -> {
                     log.error("Turn failed for session {}: {}", key, e.toString());
                     killProcess();
@@ -274,6 +282,11 @@ public class ClaudeSession {
             process = null;
         }
 
+        ClaudeSessionSpec spec = specSupplier.get();
+        this.turnTimeout = spec.turnTimeout();
+
+        Path workingDir = workspace.dirOf(key);
+        Path configDir = workspace.configDirOf(key);
         FileUtils.createDirectory(workingDir);
         FileUtils.createDirectory(configDir);
         // 每个会话一份 config 目录，所以每次拉起都要保证它里面有 .claude.json——缺了
@@ -282,19 +295,13 @@ public class ClaudeSession {
         // 清空上下文"做成自愈的：清完下一轮拉起时这里会重新播种。
         ClaudeConfigSeeder.seed(configDir, workingDir);
 
-        List<String> args = new ArrayList<>();
-        List<String> capabilityArgs = capabilityArgsSupplier != null ? capabilityArgsSupplier.get() : null;
-        if (capabilityArgs != null) {
-            args.addAll(capabilityArgs);
-        }
-        if (properties.getExtraArgs() != null) {
-            args.addAll(properties.getExtraArgs());
-        }
+        List<String> args = new ArrayList<>(ClaudeLaunchCommand.argsOf(spec, workspace, key));
+        args.addAll(spec.extraArgs());
 
         ClaudeProcess started;
         try {
             started = ClaudeProcess.start(binary, workingDir, configDir,
-                    endpointEnvSupplier.get(), args, builtinTools, resumeSession);
+                    spec.env(), args, String.join(" ", spec.builtinTools()), spec.resume());
         } catch (IOException e) {
             throw new IllegalStateException("Failed to start claude process for session " + key, e);
         }

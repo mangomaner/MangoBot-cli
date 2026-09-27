@@ -1,6 +1,5 @@
 package io.github.mangomaner.mangobot.module.agent.chat;
 
-import io.github.mangomaner.mangobot.module.agent.runtime.claude.ClaudeRuntimeProperties;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -48,7 +47,7 @@ public class ChatInboxRegistry implements ChatInboxHost {
                     + "不要把刚才被打断的内容重说一遍，请结合前后所有消息重新判断这一轮该怎么回。");
 
     private final ChatTurnRunner turnRunner;
-    private final ClaudeRuntimeProperties properties;
+    private final ChatTurnProperties chatProperties;
     private final TurnControlRegistry turnControls;
 
     private final Map<String, ChatInbox> inboxes = new ConcurrentHashMap<>();
@@ -95,7 +94,7 @@ public class ChatInboxRegistry implements ChatInboxHost {
     /** 排一次防抖到期检查；代次过期时任务自己会无操作。 */
     @Override
     public void scheduleDebounce(ChatInbox inbox, long generation) {
-        long delay = Math.max(0L, properties.getGroupDebounceMillis());
+        long delay = Math.max(0L, chatProperties.getGroupDebounceMillis());
         debounceTimer.schedule(() -> {
             try {
                 inbox.onDebounceFired(generation);

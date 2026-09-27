@@ -4,12 +4,13 @@ import io.github.mangomaner.mangobot.module.agent.chat.ChatStreamMapper;
 import io.github.mangomaner.mangobot.module.agent.model.dto.ChatMessageWebRequest;
 import io.github.mangomaner.mangobot.module.agent.model.dto.CreateChatSessionRequest;
 import io.github.mangomaner.mangobot.module.agent.model.dto.StreamChatRequest;
+import io.github.mangomaner.mangobot.module.agent.chat.SessionKeys;
 import io.github.mangomaner.mangobot.module.agent.model.enums.SessionSource;
 import io.github.mangomaner.mangobot.module.agent.model.vo.ChatSessionVO;
-import io.github.mangomaner.mangobot.module.agent.runtime.claude.ClaudeEvent;
+import io.github.mangomaner.mangobot.infra.claude.session.ClaudeEvent;
 import io.github.mangomaner.mangobot.module.agent.runtime.claude.ClaudeRuntimeManager;
-import io.github.mangomaner.mangobot.module.agent.runtime.claude.ClaudeSession;
-import io.github.mangomaner.mangobot.module.agent.runtime.claude.ClaudeTurnInput;
+import io.github.mangomaner.mangobot.infra.claude.session.ClaudeSession;
+import io.github.mangomaner.mangobot.infra.claude.session.ClaudeTurnInput;
 import io.github.mangomaner.mangobot.module.agent.service.ChatMessageWebService;
 import io.github.mangomaner.mangobot.module.agent.service.ChatSessionService;
 import io.github.mangomaner.mangobot.system.common.BaseResponse;
@@ -46,9 +47,6 @@ import java.util.Optional;
 @RequestMapping("/api/chat")
 @RequiredArgsConstructor
 public class ChatController {
-
-    /** web 会话在运行时里的 botId 占位；真实 Bot 的 id 是数字，撞不上。 */
-    private static final String WEB_BOT_ID = "web";
 
     /** 流结束标记，前端靠它把这一轮收尾并落库到本地列表。 */
     private static final String DONE = "[DONE]";
@@ -99,7 +97,8 @@ public class ChatController {
         ClaudeSession session;
         Optional<Flux<ClaudeEvent>> turn;
         try {
-            session = runtimeManager.getOrCreate(WEB_BOT_ID, String.valueOf(sessionId), SessionSource.WEB);
+            session = runtimeManager.getOrCreate(SessionKeys.WEB_BOT_ID, String.valueOf(sessionId),
+                    SessionSource.WEB);
             turn = session.trySendTurn(new ClaudeTurnInput(message));
         } catch (Exception e) {
             log.error("Web 流式对话取会话失败：sessionId={}", sessionId, e);

@@ -1,4 +1,4 @@
-package io.github.mangomaner.mangobot.module.agent.runtime.claude;
+package io.github.mangomaner.mangobot.infra.claude;
 
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -24,14 +24,14 @@ import java.util.List;
  *     turn-timeout-seconds: 120
  *     shutdown-grace-millis: 3000
  *     warmup: false           # 应用启动时预拉进程（默认懒启动，避免首次运行卡住开机）
- *     max-images-per-turn: 3  # 一轮最多送几张入站图（0 表示只送文字描述）
- *     group-debounce-millis: 1000
  *     session-idle-minutes: 30
- *     max-sessions: 16
- *     max-system-prompt-chars: 8000
+ *     max-sessions: 16        # 每个会话池各算
  *     builtin-tools: Skill    # claude 内置工具白名单（空格分隔）；空串=全禁
  *     extra-args: []
  * </pre>
+ *
+ * <p>聊天编排那几个策略参数（防抖窗口、每轮图数、提示词长度上限）在
+ * {@code ChatTurnProperties} 里，前缀是 {@code mangobot.chat}。
  */
 @Data
 @Component
@@ -68,29 +68,11 @@ public class ClaudeRuntimeProperties {
     /** 应用启动时是否预拉进程；默认懒启动，第一轮对话时才拉起 */
     private boolean warmup = false;
 
-    /**
-     * 一轮最多带几张入站图。
-     *
-     * <p>图片落在提示词缓存边界之外，每轮都是净增输入（实测一张 1.5KB 小图约 +250 token，
-     * 随尺寸变），所以这是唯一的成本闸门。取消息里最后 N 张，越近越相关。
-     */
-    private int maxImagesPerTurn = 3;
-
-    /**
-     * 群聊/私聊攒消息的防抖窗口（毫秒）：窗口内每来一条就把定时器重置，静默这么久才开一轮。
-     *
-     * <p>比"首条立刻开跑"更像真人（真人不会 300ms 内回话），也天然把连发的几条并成一批。
-     */
-    private long groupDebounceMillis = 1000;
-
     /** 会话空闲多久后回收（分钟）；0 或负数表示不回收 */
     private long sessionIdleMinutes = 30;
 
-    /** 常驻会话数上限，超出按最久未用淘汰；0 或负数表示不限 */
+    /** <b>每个会话池</b>的常驻上限，超出按最久未用淘汰；0 或负数表示不限 */
     private int maxSessions = 16;
-
-    /** 系统提示词的字符数上限（0 或负数表示不限）；超长截断并打 warn。 */
-    private int maxSystemPromptChars = 8000;
 
     /**
      * 允许模型使用的 claude <b>内置</b>工具，空格分隔的白名单；空串表示一个都不给。
@@ -106,7 +88,7 @@ public class ClaudeRuntimeProperties {
      *
      * <p>注意这与 {@code --allowedTools}（权限名单）是两件事：那个管"放不放行"，这个管"存不存在"。
      * <b>但只管存在是不够的</b>——headless 下没人点批准，没进放行名单的工具一用就被拒。
-     * 所以放行名单会从这里的值自动补齐（见 {@code ClaudeRuntimeManager.allowedToolRules}），
+     * 所以放行名单会从这里的值自动补齐（见 {@code ClaudeLaunchCommand.allowRules}），
      * 加工具只需要改这一处。
      * 改这里的值必须重启（spawn 参数是冻的）。
      *

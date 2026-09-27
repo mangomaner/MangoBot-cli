@@ -7,48 +7,45 @@ import io.github.mangomaner.mangobot.annotation.messageHandler.MangoBotEventList
 import io.github.mangomaner.mangobot.api.MangoModelApi;
 import io.github.mangomaner.mangobot.api.enums.ModelRole;
 import io.github.mangomaner.mangobot.events.configuration.ModelRoleChangedEvent;
+import io.github.mangomaner.mangobot.infra.claude.ClaudeRuntime;
+import io.github.mangomaner.mangobot.infra.claude.ClaudeRuntimeProperties;
+import io.github.mangomaner.mangobot.infra.claude.process.ClaudeBinaryResolver;
+import io.github.mangomaner.mangobot.infra.claude.session.ClaudeSession;
+import io.github.mangomaner.mangobot.infra.claude.skill.ClaudeSkillRegistry;
+import io.github.mangomaner.mangobot.infra.claude.spec.ClaudeSessionSpec;
+import io.github.mangomaner.mangobot.infra.claude.spec.McpServerSpec;
+import io.github.mangomaner.mangobot.infra.claude.transcript.ClaudeTranscript;
 import io.github.mangomaner.mangobot.module.agent.capability.prompt.SystemPromptComposer;
-import io.github.mangomaner.mangobot.module.agent.capability.skill.SkillManager;
 import io.github.mangomaner.mangobot.module.agent.capability.tool.JavaToolMcpServer;
 import io.github.mangomaner.mangobot.module.agent.model.domain.AgentMcpConfig;
 import io.github.mangomaner.mangobot.module.agent.model.enums.SessionSource;
 import io.github.mangomaner.mangobot.module.agent.service.AgentMcpConfigService;
 import io.github.mangomaner.mangobot.module.configuration.model.domain.ModelEndpoint;
-import io.github.mangomaner.mangobot.utils.FileUtils;
-import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
-import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.stream.Stream;
+import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 
 /**
- * Claude Code 运行时管理器：持有各会话的常驻 claude 进程。
+ * claude 会话的<b>策略层</b>：决定"这个会话该被配置成什么样"，交给 {@link ClaudeRuntime} 去跑。
  *
- * <p>会话按 <code>botId:sourceKey</code> 缓存。
- * 进程默认懒启动——第一轮对话时才拉起，避免把冷启动和首次运行卡死的风险带进开机流程。
- * 常驻会话由巡检线程按空闲时长与数量上限回收，见 {@link #startReaper()}。
+ * <p>进程怎么起、轮次怎么排、工作区怎么摆、argv 怎么落，全在 {@code infra/claude}；这里只管往
+ * {@link ClaudeSessionSpec} 里填什么——技能目录、系统提示词、工具面、MCP、模型角色端点。
+ * 所以本类是唯一需要认识「技能 / 模型设置 / 能力页 / 来源」的地方。
  *
- * <p><b>端点凭据不在这里配置</b>：地址 / 密钥 / 模型名每次拉起子进程时从「模型设置」的主模型
- * 现读（{@link ClaudeRuntimeManager#spawnEnv}）。但环境变量是 spawn 那一刻写死的，所以主模型
- * 换绑时得把常驻会话关掉重建——见 {@link #onModelRoleChanged}。注意那个监听只覆盖"角色换绑模型"，
- * 改供应商的地址/密钥不发事件，那些会话要等到自然重建才会用上新值。
+ * <p>端点凭据随 spec 的 {@code env} 进来，spawn 那刻写死，所以换模型要重建会话（见
+ * {@link #onModelRoleChanged}）。那个监听只覆盖"角色换绑模型"，改供应商地址/密钥不发事件。
  *
- * <p>遵循项目约定：业务初始化不用 {@code @PostConstruct}，由
- * {@code MangoBotApplication.main()} 显式调用 {@link #init()}；清理走 {@link PreDestroy}。
+ * <p>业务初始化不用 {@code @PostConstruct}，由 {@code MangoBotApplication.main()} 显式调用 {@link #init()}。
  */
 @Slf4j
 @Component
@@ -56,105 +53,105 @@ import java.util.concurrent.TimeUnit;
 @MangoBotEventListener
 public class ClaudeRuntimeManager {
 
-    /**
-     * 每个会话自己那份 claude 家目录，落在该会话的工作目录下：{@code <会话目录>/claude-config}。
-     *
-     * <p>为什么不共用一个：会话转录写在 {@code <configDir>/projects/<cwd 的 slug>/} 下，而那个目录名是
-     * claude 自己按 cwd 算的（归一化规则没官方文档）。要让"清空上下文"变成"删掉这个会话自己的目录"、
-     * 而不是去猜/internal 命名，最省事的办法就是让每个会话有自己的 config 目录。
-     */
-    private static final String CLAUDE_CONFIG_SUBDIR = "claude-config";
-    private static final String DEFAULT_WORK_DIR = "data/claude-work";
-    private static final long PROBE_SETTLE_MILLIS = 2000L;
+    /** 探针会话用的键；它不进常驻会话表，但要和一个真实形状的 spec 一起跑才有意义。 */
+    private static final String PROBE_SESSION_KEY = "__probe__";
 
-    /** 空闲回收巡检的间隔（分钟）。 */
-    private static final long REAP_INTERVAL_MINUTES = 5L;
-
-    /** 会话工作目录下生成的 MCP 配置文件（--mcp-config 的值） */
-    private static final String MCP_CONFIG_FILE = "mcp.json";
+    /** 聊天会话的池名；常驻上限按池分算，别的 agent 不会来挤这个池的名额。 */
+    private static final String CHAT_POOL = "chat";
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
+    private final ClaudeRuntime runtime;
     private final ClaudeRuntimeProperties properties;
-    private final SkillManager skillManager;
+    private final ClaudeSkillRegistry skillRegistry;
     private final AgentMcpConfigService mcpConfigService;
     private final JavaToolMcpServer javaToolMcpServer;
     private final SystemPromptComposer systemPromptComposer;
 
-    private final Map<String, ClaudeSession> sessions = new ConcurrentHashMap<>();
+    // 本类建过的会话键 → 来源。键怎么拼只有 SessionKeys 知道，业务要"按来源找会话"就该查这张表，
+    // 而不是去切那个字符串（切法一变就静默失配）
+    private final Map<String, SessionSource> sources = new ConcurrentHashMap<>();
 
-    /** 空闲回收巡检线程；{@code sessionIdleMinutes} 与 {@code maxSessions} 都为 0 时不予创建。 */
-    private volatile ScheduledExecutorService reaper;
-
-    private volatile Path binary;
-        private volatile Path workingDir;
-
-    /**
-     * 初始化阶段判定的不可用原因（被禁用 / 找不到二进制）；这一层没问题时为空串。
-     *
-     * <p>端点那一层刻意不缓存在这里：用户可能启动后才去「模型设置」补主模型，
-     * 缓存住会让运行时永远卡在未就绪。
-     */
-    private volatile String runtimeProblem = "";
-
-    /**
-     * 初始化：解析路径、播种配置、定位二进制。由 {@code MangoBotApplication.main()} 显式调用。
-     *
-     * <p>端点没配好**不阻止初始化**，只打 warn：那是可以在 UI 上补救的状态，不是启动失败。
-     */
+    /** 拉起运行时底座，讲清端点状态，按需探针。由 {@code MangoBotApplication.main()} 显式调用。 */
     public void init() {
-        if (!properties.isEnabled()) {
-            runtimeProblem = "mangobot.claude.enabled=false";
-            log.info("Claude 运行时未启用（mangobot.claude.enabled=false）");
+        runtime.init();
+        if (!runtime.ready()) {
+            // 二进制都没有就没必要谈端点；运行时自己的日志已经说清了原因
             return;
         }
-
-        this.workingDir = resolveDir(properties.getWorkingDir(), DEFAULT_WORK_DIR);
-        FileUtils.createDirectory(workingDir);
-
-        Optional<Path> resolved = ClaudeBinaryResolver.resolve(properties);
-        if (resolved.isEmpty()) {
-            runtimeProblem = "未找到 claude 可执行文件";
-            log.error("未找到 claude 可执行文件，运行时不可用。已依次尝试：mangobot.claude.binary-path 配置 → "
-                            + "环境变量 {} → {} → {} → PATH 中的 {}。修法二选一：把可执行文件保存为 {}；"
-                            + "或已经装过 claude 的话，把 binary-path 指向它现有的文件。",
-                    ClaudeBinaryResolver.ENV_OVERRIDE, ClaudeBinaryResolver.distPath(),
-                    ClaudeBinaryResolver.userHomePath(), ClaudeBinaryResolver.binaryName(),
-                    ClaudeBinaryResolver.distPath());
-            return;
-        }
-
-        this.binary = resolved.get();
-        runtimeProblem = "";
-        log.info("Claude 运行时二进制就绪：binary={} platform={} workingDir={}（每个会话的 claude 家目录在 <会话目录>/{}}）",
-                binary, ClaudeBinaryResolver.platformKey(), workingDir, CLAUDE_CONFIG_SUBDIR);
 
         logEndpointState();
-        startReaper();
 
         if (properties.isWarmup() && isReady()) {
-            probe();
+            runtime.probe(PROBE_SESSION_KEY, () -> specForEphemeral(PROBE_SESSION_KEY,
+                    SessionSource.WEB, properties.getBuiltinTools()));
         }
     }
+
+    // ========================================================================
+    // 取会话
+    // ========================================================================
 
     /**
      * 取（或创建）某个 Bot + 来源的会话。
      *
      * <p>{@code sourceKey} 是"这个会话在这个 bot 下叫什么"，不是 {@link SessionSource}：
      * 群聊/私聊会带上目标 id（形如 {@code group:12345}），web 就是 sessionId。
-     * 会话键因此形如 {@code <botId>:group:12345}。下发哪套技能由 {@code source} 决定。
+     * 会话键因此形如 {@code <botId>:group:12345}。下发哪套技能、连哪个工具端点由 {@code source} 决定。
      */
     public ClaudeSession getOrCreate(String botId, String sourceKey, SessionSource source) {
         if (!isReady()) {
             throw new IllegalStateException("Claude 运行时未就绪：" + notReadyReason());
         }
         String key = botId + ":" + sourceKey;
-        return sessions.computeIfAbsent(key, k -> new ClaudeSession(k, binary,
-                sessionWorkingDir(k), sessionConfigDir(k), properties,
-                () -> spawnEnv(k, mainModelEndpoint()),
-                () -> capabilityArgs(k, source), properties.getBuiltinTools(),
-                properties.isResumeSessions()));
+        sources.put(key, source);
+        return runtime.getOrCreate(key, CHAT_POOL, () -> specForChat(key, botId, source));
     }
+
+    // 不带来源的取会话，默认 WEB——给 dev / smoke 端点用
+    public ClaudeSession getOrCreate(String botId, String sourceKey) {
+        return getOrCreate(botId, sourceKey, SessionSource.WEB);
+    }
+
+    /**
+     * 造一个<b>不进常驻会话表</b>的一次性会话；用完必须自己 {@link ClaudeSession#close()}。
+     *
+     * @param source 来源，决定插件目录与连哪个 MCP 端点
+     */
+    public ClaudeSession newEphemeralSession(String key, SessionSource source) {
+        return newEphemeralSession(key, source, properties.getBuiltinTools());
+    }
+
+    /** 同 {@link #newEphemeralSession(String, SessionSource)}，但显式指定内置工具白名单（judge 传空串）。 */
+    public ClaudeSession newEphemeralSession(String key, SessionSource source, String builtinTools) {
+        return runtime.newEphemeral(key, () -> specForEphemeral(key, source, builtinTools));
+    }
+
+    /**
+     * 造一个 <b>judge（评判）用</b>的一次性会话：无插件、无 MCP、无内置工具。
+     *
+     * <p>它只读文本、只吐 JSON，多一个工具就多一份把用例原文当指令执行的风险（用例里写的
+     * "该沉默"本身就是一段祈使句）。{@code strictMcpConfig} 让它写一份<b>空的</b> {@code mcp.json}
+     * 再声明只认它，否则 claude 会去读用户/项目里的 {@code .mcp.json}。
+     *
+     * @param role         模型角色；没配好时回退主模型
+     * @param systemPrompt 评判提示词（<b>整段替换</b> claude 自带的）
+     * @throws IllegalStateException 运行时未就绪或评判模型不可用
+     */
+    public ClaudeSession newJudgeSession(String key, ModelRole role, String systemPrompt) {
+        if (!runtime.ready()) {
+            throw new IllegalStateException("Claude 运行时未就绪：" + runtime.problem());
+        }
+        ModelEndpoint endpoint = endpointFor(role);
+        if (!endpoint.ok()) {
+            throw new IllegalStateException("评判模型不可用：" + endpoint.problem());
+        }
+        return runtime.newEphemeral(key, () -> specForJudge(endpoint, systemPrompt));
+    }
+
+    // ========================================================================
+    // 会话生命周期（转发给运行时）
+    // ========================================================================
 
     /**
      * 把单个会话标成"下次拉起时重建"。
@@ -162,17 +159,21 @@ public class ClaudeRuntimeManager {
      * <p>与 {@link #markAllSessionsStale()} 的区别只在粒度。模拟台用它保证一场模拟从干净进程开始：
      * 固定会话键会命中上一场留下的 warm 进程，不重建就会把上一场的历史与旧提示词一起带进来。
      *
-     * <p>实际关进程发生在下一次 {@link ClaudeSession#ensureProcess()}（也就是这一场的首轮），
-     * 所以语义上等价于"整场从新进程开始"，而不用在这里多做一次同步等待。
-     *
      * <p><b>注意它不丢历史</b>：新进程带 {@code -c} 拉起，会把这场对话接着续下去，只是换上了新的
      * 技能目录与系统提示词。要连历史一起丢，用 {@link #resetSession(String)}。
      */
     public void markSessionStale(String key) {
-        ClaudeSession session = sessions.get(key);
-        if (session != null) {
-            session.markStale();
-        }
+        runtime.markStale(key);
+    }
+
+    /**
+     * 把全部常驻会话标成"下次拉起时重建"。技能 / 人格 / Java 工具面变更后调。
+     *
+     * <p>改完配置<b>只是下次能生效</b>：已经在跑的会话要等下一轮对话才会重建。技能正文还是进程级缓存，
+     * 所以变更后业务侧还得给活会话排一条"上文作废、重新读"的控制指令，见 {@code SkillChangeNotifier}。
+     */
+    public void markAllSessionsStale() {
+        runtime.markAllStale();
     }
 
     /**
@@ -181,156 +182,71 @@ public class ClaudeRuntimeManager {
      * <p>会话不存在（还没拉起过）或没有在途轮次时什么都不做——调用方不需要先判断。
      */
     public void interruptTurn(String key) {
-        ClaudeSession session = sessions.get(key);
-        if (session != null) {
-            session.interrupt();
-        }
+        runtime.interruptTurn(key);
     }
 
     /**
-     * 清空某个会话的上下文：关掉进程，并删掉它自己的 config 目录（转录就在里面）。
+     * 清空某个会话的上下文：关掉进程，并删掉它自己的工作区目录（转录就在里面）。
      *
      * <p>两件事都要做：<b>只关进程不够</b>——重新拉起时带 {@code -c}，claude 会把磁盘上那份转录
-     * 又续回来，用户会看到"点了清空但没生效"。所以删目录才是真正的清空动作。
+     * 又续回来，用户会看到"点了清空但没生效"。
      *
-     * <p>删完不用管恢复：下一轮拉起时 {@code ClaudeSession.ensureProcess()} 会重新播种
-     * {@code .claude.json}（缺了它进程会卡在 onboarding），自愈。
-     *
-     * <p>与 {@link #markSessionStale} 的区别：那个是"下次拉起时换新参数"，会话<b>历史保留</b>，
-     * 进程可以继续跑完手上这轮；这个是"把历史一起丢掉"。前者用于改配置，后者用于用户点「清空上下文」。
-     *
-     * @return 是否真的动了什么东西（进程或转录目录）；两者都没有也算成功——状态已经是"没有上下文"了
+     * <p>与 {@link #markSessionStale} 的区别：那个是"下次拉起时换新参数"，会话<b>历史保留</b>；
+     * 这个是"把历史一起丢掉"。前者用于改配置，后者用于用户点「清空上下文」。
      */
     public boolean resetSession(String key) {
-        ClaudeSession session = sessions.remove(key);
-        if (session != null) {
-            session.close();
+        return runtime.resetSession(key);
+    }
+
+    // 预留在跑会话的诊断信息
+    public Map<String, Boolean> sessionStatus() {
+        return runtime.sessionStatus();
+    }
+
+    /**
+     * 主模型换绑时重建全部常驻会话：{@code ANTHROPIC_MODEL} 等环境变量在 spawn 那刻就写死了，
+     * 不重建进程的话已配置的会话会一直用旧模型答话。
+     *
+     * <p><b>关进程绝不放在派发线程上做</b>：那个事件池实际只跑到 corePoolSize = 1，全 app 的 OneBot
+     * 事件都在这一个线程上派发，而 {@code close()} 要等进程优雅退出（最长 {@code shutdownGraceMillis}），
+     * 堵在这里会把消息处理一起拖住。
+     */
+    @MangoBotEventListener
+    public boolean onModelRoleChanged(ModelRoleChangedEvent event) {
+        if (!ModelRole.MAIN.getRoleKey().equals(event.getRoleKey())) {
+            return true;
         }
-        // 光关进程不够：进程重新拉起时带 {@code -c}，会把磁盘上那份转录又续回来——按钮会看起来"没生效"。
-        // 所以真正的清空是把这个会话自己的 config 目录删掉（转录就在里面）。
-        boolean deleted = deleteSessionConfigDir(key);
-        log.info("清空上下文：session={} 关掉在跑的进程={} 删掉转录目录={}",
-                key, session != null, deleted);
-        return session != null || deleted;
-    }
-
-    /**
-     * 不带来源的取会话，默认 {@link SessionSource#WEB}——给 dev / smoke 端点用。
-     */
-    public ClaudeSession getOrCreate(String botId, String sourceKey) {
-        return getOrCreate(botId, sourceKey, SessionSource.WEB);
-    }
-
-    /**
-     * 标记全部常驻会话"下次拉起时重建"。
-     *
-     * <p>技能目录与系统提示词都是 spawn 参数：能力页上改了技能（或人格正文）之后，已在跑的进程
-     * 还是老样子，必须让它们重建才生效。不立刻关——正在跑的轮次不该被打断，见
-     * {@link ClaudeSession#markStale()}。
-     */
-    public void markAllSessionsStale() {
-        for (ClaudeSession session : sessions.values()) {
-            session.markStale();
+        int count = runtime.sessionStatus().size();
+        if (count == 0) {
+            return true;
         }
+        log.info("主模型换绑（{} → {}），重建 {} 个 claude 会话以换用新模型",
+                event.getOldModelConfigId(), event.getNewModelConfigId(), count);
+
+        Thread worker = new Thread(() -> log.info("主模型换绑：已关闭 {} 个 claude 会话，下次使用时按新模型重建",
+                runtime.closeAll()), "claude-model-changed");
+        worker.setDaemon(true);
+        worker.start();
+        return true;
     }
+
+    // ========================================================================
+    // 状态查询
+    // ========================================================================
 
     /**
-     * 造一个**不进 sessions 表**的一次性会话；用完必须自己 {@link ClaudeSession#close()}。
+     * 运行时是否可用：二进制那层 + 端点那层都要好。
      *
-     * <p>给两处用：开机探针只需要"进程能起来"；模拟台的 judge 会话要一个干净的一次性进程。
-     * 两者都不该占常驻会话的名额，也不该被空闲回收与 LRU 淘汰盯上——所以刻意走这个旁路，
-     * 形状与 {@code probe()} 原来那三行一致。
-     *
-     * @param key    会话键；会写进该会话的 mcp.json 请求头，也是工具侧认"是哪个会话在调我"的凭据
-     * @param source 来源，决定插件目录与连哪个 MCP 端点
-     * @throws IllegalStateException 运行时未就绪
+     * <p>端点每次都现读主模型，所以用户在「模型设置」里补好配置后，这里立刻变成 true。
      */
-    public ClaudeSession newEphemeralSession(String key, SessionSource source) {
-        return newEphemeralSession(key, source, properties.getBuiltinTools());
-    }
-
-    /**
-     * 同 {@link #newEphemeralSession(String, SessionSource)}，但显式指定内置工具白名单。
-     *
-     * <p>给模拟台的 judge 会话用：它只读文本、只吐 JSON，<b>一个工具都不该有</b>（传空串）。
-     * 多一个工具就多一份"自作主张"的面，还会把工具 schema 塞进提示词、稀释注意力。
-     */
-    public ClaudeSession newEphemeralSession(String key, SessionSource source, String builtinTools) {
-        if (!isReady()) {
-            throw new IllegalStateException("Claude 运行时未就绪：" + notReadyReason());
-        }
-        // 一次性会话永远不续：它要么是探针、要么是模拟台的 judge，每次都必须从干净上下文开始
-        return new ClaudeSession(key, binary, sessionWorkingDir(key), sessionConfigDir(key),
-                properties, () -> spawnEnv(key, mainModelEndpoint()),
-                () -> capabilityArgs(key, source), builtinTools, false);
-    }
-
     public boolean isReady() {
-        return binary != null && runtimeProblem.isEmpty() && mainModelEndpoint().ok();
+        return runtime.ready() && mainModelEndpoint().ok();
     }
 
-    /**
-     * 造一个 <b>judge（评判）用</b>的一次性会话：一个工具都没有，也没有任何插件。
-     *
-     * <p>它要的只有一件事：读一段文本、吐一段 JSON。所以从 spawn 参数里把能"自作主张"的东西全摘掉——
-     * 不给 {@code --plugin-dir}（技能广告、技能正文都进不来）、不给 {@code --mcp-config}
-     * （外部 MCP 连接也不连）、内置工具传空串。多一个工具就多一份面，还多一份把用例原文
-     * 当指令执行的风险（用例里写的"该沉默"本身就是一段祈使句）。
-     *
-     * <p><b>刻意不共用 {@link #capabilityArgs}</b>：那条路是按来源拼的（插件目录、按来源放行的 Java
-     * 工具、全部启用的外部 MCP 连接都在里面），任何一处改动都会悄悄把工具带进评判会话。评判的形状
-     * 是"无工具"，这不该是别的逻辑的副产品。
-     *
-     * <p>仍然显式写一份空的 {@code mcp.json} 并带上 {@code --strict-mcp-config}：不这么做的话
-     * claude 会去读用户/项目里的 {@code .mcp.json}，"无工具"就不是我们能保证的了。
-     *
-     * @param key          会话键；judge 自成一路，别和聊天会话键撞
-     * @param role         模型角色；该角色没配好时回退主模型（回退与否则靠 {@link #judgeEndpoint} 查）
-     * @param systemPrompt 评判提示词
-     * @throws IllegalStateException 运行时未就绪或评判模型不可用
-     */
-    public ClaudeSession newJudgeSession(String key, ModelRole role, String systemPrompt) {
-        if (binary == null || !runtimeProblem.isEmpty()) {
-            throw new IllegalStateException("Claude 运行时未就绪：" + notReadyReason());
-        }
-        ModelEndpoint endpoint = endpointFor(role);
-        if (!endpoint.ok()) {
-            throw new IllegalStateException("评判模型不可用：" + endpoint.problem());
-        }
-
-        Path sessionDir = sessionWorkingDir(key);
-        List<String> args = new ArrayList<>();
-        args.add("--mcp-config");
-        args.add(writeEmptyMcpConfig(sessionDir).toString());
-        args.add("--strict-mcp-config");
-        if (systemPrompt != null && !systemPrompt.isBlank()) {
-            args.add("--system-prompt");
-            args.add(systemPrompt);
-        }
-
-        // judge 永远不续会话：每次评判都必须从干净上下文开始
-        return new ClaudeSession(key, binary, sessionDir, sessionConfigDir(key), properties,
-                () -> spawnEnv(key, endpoint), () -> args, "", false);
-    }
-
-    /**
-     * judge 实际会用的模型端点：优先 {@code preferred}，它没配好就回退主模型。
-     *
-     * <p>要暴露出来是因为"这一份评判是谁打的"必须可追溯：两者同族时存在自我偏好，
-     * 结果里得写清到底用了哪个模型，人才好判断这份评判有多可信。
-     */
-    public ModelEndpoint judgeEndpoint(ModelRole preferred) {
-        return endpointFor(preferred);
-    }
-
-    /**
-     * 不可用的原因；就绪时为空串。给启动日志、诊断端点和 smoke 端点复用。
-     *
-     * <p>每次都现读主模型，所以用户在「模型设置」里补好配置后，这里立刻变成空串。
-     */
+    /** 不可用的原因；就绪时为空串。给启动日志、诊断端点和 smoke 端点复用。 */
     public String notReadyReason() {
-        if (!runtimeProblem.isEmpty()) {
-            return runtimeProblem;
+        if (!runtime.problem().isEmpty()) {
+            return runtime.problem();
         }
         ModelEndpoint endpoint = mainModelEndpoint();
         return endpoint.ok() ? "" : endpoint.problem();
@@ -345,446 +261,142 @@ public class ClaudeRuntimeManager {
         return MangoModelApi.resolveEndpoint(ModelRole.MAIN);
     }
 
+    /**
+     * judge 实际会用的模型端点：优先 {@code preferred}，它没配好就回退主模型。
+     *
+     * <p>要暴露出来是因为"这一份评判是谁打的"必须可追溯：两者同族时存在自我偏好，
+     * 结果里得写清到底用了哪个模型，人才好判断这份评判有多可信。
+     */
+    public ModelEndpoint judgeEndpoint(ModelRole preferred) {
+        return endpointFor(preferred);
+    }
+
     public Path binaryPath() {
-        return binary;
+        return runtime.binaryPath();
     }
 
     public Path workingDir() {
-        return workingDir;
+        return runtime.workspace().root();
     }
 
     public String platformKey() {
         return ClaudeBinaryResolver.platformKey();
     }
 
-    /** 预留在跑会话的诊断信息。 */
-    public Map<String, Boolean> sessionStatus() {
-        Map<String, Boolean> status = new ConcurrentHashMap<>();
-        sessions.forEach((key, session) -> status.put(key, session.isRunning()));
-        return status;
+    // 某个会话自己的 claude 配置目录（转录也在里面）
+    public Path sessionConfigDir(String key) {
+        return runtime.workspace().configDirOf(key);
+    }
+
+    /** 读转录的入口；"查看上下文"页面与用量分析共用它，别再自己去拼路径。 */
+    public ClaudeTranscript transcript() {
+        return runtime.transcript();
+    }
+
+    /** 在跑的会话键 → 它属于哪个来源。给"按来源发控制指令"这类用途。 */
+    public Map<String, SessionSource> runningSources() {
+        Map<String, Boolean> live = runtime.sessionStatus();
+        // 顺手清掉已被回收的，免得这张表随着历史会话无限长
+        sources.keySet().retainAll(live.keySet());
+        Map<String, SessionSource> out = new LinkedHashMap<>();
+        for (String key : live.keySet()) {
+            SessionSource source = sources.get(key);
+            if (source != null) {
+                out.put(key, source);
+            }
+        }
+        return out;
     }
 
     /**
-     * 主模型换绑时重建全部常驻会话。
+     * 跑 {@code /context} 取上下文分类明细；失败时返回一句可读的原因。
      *
-     * <p>{@code ANTHROPIC_MODEL} 等环境变量在 spawn 那一刻就写死了，不重建进程的话已配置的会话
-     * 会一直用旧模型答话。
-     *
-     * <p><b>关进程绝不放在派发线程上做</b>：{@code MangoEventPublisher} 那个池虽然写了
-     * {@code maximumPoolSize=10}，但配的是无界队列，实际只会跑到 corePoolSize = 1——也就是全 app
-     * 的 OneBot 事件（含所有群消息）都在这一个线程上派发。而 {@code close()} 要等进程优雅退出，
-     * 最长 {@code shutdownGraceMillis}，堵在这里会把消息处理一起拖住。
+     * <p>参数与真实会话同源（{@link #specForChat}），少给一个那份报告算的就是另一套配置的占比。
      */
-    @MangoBotEventListener
-    public boolean onModelRoleChanged(ModelRoleChangedEvent event) {
-        if (!ModelRole.MAIN.getRoleKey().equals(event.getRoleKey())) {
-            return true;
-        }
-
-        int count = sessions.size();
-        if (count == 0) {
-            return true;
-        }
-        log.info("主模型换绑（{} → {}），重建 {} 个 claude 会话以换用新模型",
-                event.getOldModelConfigId(), event.getNewModelConfigId(), count);
-
-        Thread worker = new Thread(() -> log.info("主模型换绑：已关闭 {} 个 claude 会话，下次使用时按新模型重建",
-                closeAllSessions()), "claude-model-changed");
-        worker.setDaemon(true);
-        worker.start();
-        return true;
-    }
-
-    @PreDestroy
-    public void shutdown() {
-        ScheduledExecutorService timer = reaper;
-        if (timer != null) {
-            timer.shutdownNow();
-        }
-        log.info("Shutting down {} claude session(s)", sessions.size());
-        closeAllSessions();
-    }
-
-    // ========================================================================
-    // 空闲回收
-    // ========================================================================
-
-    /**
-     * 起一个巡检线程：关掉空闲太久的会话、并在超出常驻上限时按最久未用淘汰。
-     *
-     * <p>没有这条，每个聊过的群都会永久留一个 claude 进程。回收的代价只是那个聊天丢了上下文，
-     * 与"新建进程不带历史"是同一个语义，所以可以放心杀——反正下一轮重建的进程同样不带历史。
-     */
-    private void startReaper() {
-        if (properties.getSessionIdleMinutes() <= 0 && properties.getMaxSessions() <= 0) {
-            log.info("会话空闲回收未启用（session-idle-minutes 与 max-sessions 都不大于 0）");
-            return;
-        }
-        ScheduledExecutorService timer = Executors.newSingleThreadScheduledExecutor(runnable -> {
-            Thread thread = new Thread(runnable, "claude-session-reaper");
-            thread.setDaemon(true);
-            return thread;
-        });
-        timer.scheduleWithFixedDelay(this::reap,
-                REAP_INTERVAL_MINUTES, REAP_INTERVAL_MINUTES, TimeUnit.MINUTES);
-        reaper = timer;
-        log.info("会话空闲回收已启用：每 {} 分钟巡检一次，空闲 {} 分钟回收，常驻上限 {}",
-                REAP_INTERVAL_MINUTES, properties.getSessionIdleMinutes(), properties.getMaxSessions());
-    }
-
-    /**
-     * 一次巡检。跑在 {@code claude-session-reaper} 线程上——<b>关进程绝不能在派发线程做</b>，
-     * {@code close()} 最长要等 {@code shutdownGraceMillis} 才强杀。
-     */
-    private void reap() {
+    public String contextReport(String key, String botId, SessionSource source) {
         try {
-            closeIdleSessions();
-            evictOverflowSessions();
-        } catch (Exception e) {
-            log.warn("claude 会话巡检失败", e);
+            return runtime.contextReport(key, () -> specForChat(key, botId, source));
+        } catch (IllegalStateException e) {
+            // spec 组装时端点就不可用；消息即原因
+            return "跑不了：" + e.getMessage() + "。";
         }
-    }
-
-    /** 关掉空闲超过 {@code sessionIdleMinutes} 的会话。 */
-    private void closeIdleSessions() {
-        long idleMinutes = properties.getSessionIdleMinutes();
-        if (idleMinutes <= 0) {
-            return;
-        }
-        long thresholdMillis = TimeUnit.MINUTES.toMillis(idleMinutes);
-        for (String key : List.copyOf(sessions.keySet())) {
-            ClaudeSession session = sessions.get(key);
-            if (session == null || session.isTurnInFlight() || session.idleMillis() < thresholdMillis) {
-                continue;
-            }
-            // 先摘出 map 再关：否则并发取会话的人可能拿到这个正在被关掉的实例
-            if (sessions.remove(key, session)) {
-                log.info("回收空闲 claude 会话：key={} 已空闲 {} 分钟", key, session.idleMillis() / 60_000L);
-                closeQuietly(key, session);
-            }
-        }
-    }
-
-    /** 常驻会话数超出 {@code maxSessions} 时，按最久未用（idle 最久）逐个淘汰。 */
-    private void evictOverflowSessions() {
-        int max = properties.getMaxSessions();
-        if (max <= 0) {
-            return;
-        }
-        while (sessions.size() > max) {
-            String lruKey = null;
-            ClaudeSession lru = null;
-            for (Map.Entry<String, ClaudeSession> entry : sessions.entrySet()) {
-                ClaudeSession candidate = entry.getValue();
-                if (candidate.isTurnInFlight()) {
-                    continue;
-                }
-                if (lru == null || candidate.idleMillis() > lru.idleMillis()) {
-                    lru = candidate;
-                    lruKey = entry.getKey();
-                }
-            }
-            if (lru == null) {
-                // 全都在跑；这一轮不淘汰，下次巡检再看
-                return;
-            }
-            if (!sessions.remove(lruKey, lru)) {
-                // 被人抢先移除或换掉了，重新挑
-                continue;
-            }
-            log.info("超出常驻会话上限 {}，淘汰最久未用的：key={} 已空闲 {} 分钟",
-                    max, lruKey, lru.idleMillis() / 60_000L);
-            closeQuietly(lruKey, lru);
-        }
-    }
-
-    private void closeQuietly(String key, ClaudeSession session) {
-        try {
-            session.close();
-        } catch (Exception e) {
-            log.warn("关闭 claude 会话失败：key={}", key, e);
-        }
-    }
-
-    /**
-     * 关闭并移除全部常驻会话，返回实际关掉的数量。
-     *
-     * <p>逐个 {@code remove} 再从 map 里拿，而不是遍历 {@code values()} 后 {@code clear()}：后者在
-     * 并发新建会话时会把新条目一起清掉却不关进程，留下孤儿进程。
-     */
-    private int closeAllSessions() {
-        int closed = 0;
-        for (String key : List.copyOf(sessions.keySet())) {
-            ClaudeSession session = sessions.remove(key);
-            if (session == null) {
-                continue;
-            }
-            try {
-                session.close();
-            } catch (Exception e) {
-                log.warn("Failed to close claude session {}", key, e);
-            }
-            closed++;
-        }
-        return closed;
     }
 
     // ========================================================================
-    // 内部
+    // spec 组装：本类的全部价值都在这里
     // ========================================================================
 
     /**
-     * 开机探针：拉一个进程起来，等一小会儿再关掉，把"二进制加载不了/缺 DLL/起来就崩"这类
-     * 问题在启动时暴露，而不是等到第一条群消息。
+     * 聊天会话的 spec：技能按作用域下发、MCP 连本进程的工具 server + 能力页启用的外部连接、
+     * 系统提示词是追加的协议头，续会话。
      *
-     * <p>注意它<b>不是</b>预热：会话是按 {@code botId:sourceKey} 分进程的，探针那个进程
-     * 帮不到任何真实会话。也刻意不在这里发一轮真实对话——那要花钱、还依赖主模型配好可用，
-     * 不适合放在默认开关后面。要验证"真的能对话"用 {@code /api/claude/smoke}。
+     * <p>技能目录由 {@code SkillManager} 排好（技能在插件目录的 {@code skills/} 子目录里），
+     * {@link ClaudeSkillRegistry} 按"会话 → bot → 全局"挑出该用哪份。已跑着的会话不受影响——
+     * 这些参数 spawn 那刻就定死了。
      */
-    private void probe() {
-        ClaudeSession probe = null;
-        try {
-            probe = newEphemeralSession("__probe__", SessionSource.WEB);
-            probe.warmup();
-            Thread.sleep(PROBE_SETTLE_MILLIS);
-            boolean running = probe.isRunning();
-            if (running) {
-                log.info("Claude 运行时探针：进程存活 {}ms 无异常退出", PROBE_SETTLE_MILLIS);
-            } else {
-                log.error("Claude 运行时探针：进程起来就退了，首轮真实对话必然失败。stderr 尾部：{}",
-                        String.join(" | ", probe.stderrTail()));
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        } catch (Exception e) {
-            log.error("Claude 运行时探针失败——首轮真实对话很可能同样失败", e);
-        } finally {
-            if (probe != null) {
-                probe.close();
-            }
-        }
+    private ClaudeSessionSpec specForChat(String key, String botId, SessionSource source) {
+        List<McpServerSpec> servers = new ArrayList<>();
+        javaToolServer(key, source).ifPresent(servers::add);
+        servers.addAll(configuredServers());
+
+        return new ClaudeSessionSpec(
+                splitTools(properties.getBuiltinTools()),
+                skillRegistry.resolve(source.getSourceKey(), botId, key),
+                servers,
+                false,
+                null,
+                systemPromptComposer.compose(source),
+                envOf(mainModelEndpoint()),
+                properties.isResumeSessions(),
+                Duration.ofSeconds(properties.getTurnTimeoutSeconds()),
+                properties.getExtraArgs());
+    }
+
+    /** 一次性会话：与聊天同配置，但没有内置工具白名单的调整、且绝不续会话。 */
+    private ClaudeSessionSpec specForEphemeral(String key, SessionSource source, String builtinTools) {
+        // botId 传空：探针 / judge 没有所属 bot，技能只能回退到全局那一级
+        return specForChat(key, null, source)
+                .withBuiltinTools(splitTools(builtinTools))
+                .asOneShot();
     }
 
     /**
-     * 拉起子进程时要注入的环境变量：端点凭据。
+     * judge 会话的 spec：无插件、无 MCP、无内置工具，且<b>整段替换</b>系统提示词。
      *
-     * <p><b>只在 spawn 那一刻算一次</b>：环境变量在进程起来后就冻住了，改完要等会话重建才生效。
-     *
-     * @throws IllegalStateException 端点不可用；消息即失败原因，会被上层兜底捕获成错误事件
+     * <p>刻意不共用 {@link #specForChat}：那条路按来源拼了一堆东西，任何一处改动都会悄悄把工具
+     * 带进评判会话。"无工具"不该是别的逻辑的副产品。
      */
-    private Map<String, String> spawnEnv(String key, ModelEndpoint endpoint) {
-        return new LinkedHashMap<>(envOf(endpoint));
+    private ClaudeSessionSpec specForJudge(ModelEndpoint endpoint, String systemPrompt) {
+        return new ClaudeSessionSpec(
+                List.of(),
+                List.of(),
+                List.of(),
+                true,
+                systemPrompt,
+                null,
+                envOf(endpoint),
+                false,
+                Duration.ofSeconds(properties.getTurnTimeoutSeconds()),
+                properties.getExtraArgs());
     }
 
-    private static Map<String, String> envOf(ModelEndpoint endpoint) {
-        if (!endpoint.ok()) {
-            throw new IllegalStateException("主模型不可用：" + endpoint.problem());
-        }
-        return Map.of(
-                "ANTHROPIC_BASE_URL", endpoint.baseUrl(),
-                "ANTHROPIC_AUTH_TOKEN", endpoint.apiKey(),
-                "ANTHROPIC_MODEL", endpoint.modelName());
-    }
-
-    /**
-     * 解析某个模型角色的端点，配好就用、没配好就回退主模型。
-     *
-     * <p>回退是刻意的：{@code assistant} 角色建了但没指定模型是很正常的状态（连默认行都可能没有），
-     * 这时"用主模型评一遍"远比"评不了"有用——只要结果里写明用的是哪个模型。
-     */
-    private ModelEndpoint endpointFor(ModelRole role) {
-        ModelEndpoint endpoint = MangoModelApi.resolveEndpoint(role);
-        if (endpoint.ok() || role == ModelRole.MAIN) {
-            return endpoint;
-        }
-        ModelEndpoint fallback = mainModelEndpoint();
-        log.info("模型角色「{}」不可用（{}），回退主模型 {}", role.getRoleKey(), endpoint.problem(),
-                fallback.ok() ? fallback.modelName() : "（主模型也不可用）");
-        return fallback;
-    }
-
-    /**
-     * 能力相关的命令行参数：技能经 {@code --plugin-dir} 下发，MCP 连接经 {@code --mcp-config} 下发。
-     *
-     * <p>技能是 bot 行为的唯一来源，插件目录由 {@link SkillManager} 维护——那里已按 claude 的插件布局
-     * 排好（技能在插件目录下的 {@code skills/} 子目录里），所以这里只负责把路径递下去。
-     *
-     * <p><b>按来源区分</b>：技能与 Java 工具在「能力页」上都有"启用来源"这一栏，所以这里按
-     * {@code source} 取对应的插件目录、连对应的 MCP 端点。已跑着的会话不受影响——这些参数都是
-     * spawn 那一刻定死的，改完要等会话重建（空闲回收 / 换主模型 / 重启）才生效。
-     *
-     * <p>另外还要放行 MCP 工具：本项目的 claude 是 {@code -p} 起的，没有交互界面可点批准，
-     * 不写白名单的话 {@code mcp__*} 一律落进 {@code permission_denials}。见 {@link #mcpAllowRules}。
-     */
-    /**
-     * 拉起这个会话要用的全部额外参数。
-     *
-     * <p><b>这是"会话被配置成什么样"的唯一出处</b>：技能目录、系统提示词、MCP 连接的
-     * {@code --mcp-config} 与工具白名单都在这里拼。所以除了 spawn，读上下文分析
-     * （{@code ContextAnalysisService}）也调它——那份报告报的是各分类占多少 token，
-     * 少给一个参数就会拿另一套配置去算，数字看着像真的却是错的。
-     */
-    public List<String> capabilityArgs(String key, SessionSource source) {
-        List<String> args = new ArrayList<>();
-
-        // headless（-p）下没有人能点「批准」，不在白名单里的工具一律被拒（结果里是 permission_denials）。
-        // 规则写成一条空格分隔的参数：--allowedTools 是变长参数，后面紧跟 --plugin-dir 才会停下；
-        // 放在最前面就是为了让它后面一定有选项，不至于把后面的参数一起吞掉。
-        List<String> allowRules = allowedToolRules(source);
-        if (!allowRules.isEmpty()) {
-            args.add("--allowedTools");
-            args.add(String.join(" ", allowRules));
-        }
-
-        args.add("--plugin-dir");
-        args.add(skillManager.getPluginDirectory(source).toString());
-
-        writeMcpConfig(sessionWorkingDir(key), key, source).ifPresent(file -> {
-            args.add("--mcp-config");
-            args.add(file.toString());
-            // 只认我们给的这份：否则 claude 还会去读用户/项目里的 .mcp.json
-            args.add("--strict-mcp-config");
-        });
-
-        appendSystemPromptArgs(args, source);
-        return args;
-    }
-
-    /**
-     * 追加系统提示词参数：{@code --append-system-prompt}。
-     *
-     * <p>用"追加"而不是 {@code --system-prompt} 整段替换：本项目的 bot 要靠模型主动调
-     * {@code send_reply} 才能说话，而 claude 自带提示词里那段"什么时候该用工具"的引导正是它的依据，
-     * 整段替换会把那份引导一并丢掉（实测有变哑巴的风险）。所以这段协议头是追加上去的。
-     *
-     * <p>放在这一串参数的最后：{@code --allowedTools} 是变长参数，靠后面紧跟的选项来终止，
-     * 所以提示词这种"单值选项"不能插在它和 {@code --plugin-dir} 中间。
-     */
-    private void appendSystemPromptArgs(List<String> args, SessionSource source) {
-        String prompt = systemPromptComposer.compose(source);
-        if (prompt.isBlank()) {
-            return;
-        }
-
-        args.add("--append-system-prompt");
-        args.add(prompt);
-        log.debug("会话 {} 投递系统提示词：长度={}", source.getSourceKey(), prompt.length());
-    }
-
-    /**
-     * 要放行的 MCP 工具规则，形如 {@code mcp__<server名>__*}（claude 认的写法，见其工具名的拼法）。
-     *
-     * <p>按 server 粒度放行而不是逐个工具名：外部连接的工具有哪些只有连上才知道，这里拿不到清单。
-     * 粒度对齐的是「能力页上启用了吗」——启用的连接整条可用，这和以前把工具交给 agent 的语义一致。
-     *
-     * <p>自己的 Java 工具 server 是按来源分的，所以"有没有工具"要按这个会话的来源问。
-     */
-    /**
-     * 放行名单 = MCP 工具（按来源）+ <b>授予了存在权的内置工具</b>。
-     *
-     * <p><b>两扇门必须一起开</b>：{@code --tools} 管"存不存在"、{@code --allowedTools} 管"放不放行"。
-     * 只开前者的话，headless（{@code -p}）下没有人能点「批准」，工具一用就被拒——实测踩过：
-     * 给了 WebSearch 却没放行，模型确实试了一次，结果里是
-     * {@code "Claude requested permissions to use WebSearch, but you haven't granted it yet."}，
-     * 然后它就放弃了（表现为"她好像不会查"）。
-     *
-     * <p>所以这里**从 {@code builtinTools} 反推**，不再手写第二份名单：授予存在权的工具自动获得放行，
-     * 两处不会走散。
-     */
-    private List<String> allowedToolRules(SessionSource source) {
-        List<String> rules = new ArrayList<>(mcpAllowRules(source));
-        String builtin = properties.getBuiltinTools();
-        if (builtin != null && !builtin.isBlank()) {
-            for (String tool : builtin.trim().split("\s+")) {
-                if (!tool.isBlank() && !rules.contains(tool)) {
-                    rules.add(tool);
-                }
-            }
-        }
-        return rules;
-    }
-
-    private List<String> mcpAllowRules(SessionSource source) {
-        List<String> rules = new ArrayList<>();
-        if (javaToolMcpServer.exposedToolCount(source) > 0) {
-            rules.add("mcp__" + JavaToolMcpServer.MCP_SERVER_NAME + "__*");
-        }
-        for (AgentMcpConfig config : mcpConfigService.listEnabled()) {
-            String name = config.getMcpName();
-            if (name == null || name.isBlank() || JavaToolMcpServer.MCP_SERVER_NAME.equals(name)) {
-                continue;
-            }
-            rules.add("mcp__" + name + "__*");
-        }
-        return rules;
-    }
-
-    /**
-     * 写成 claude 认的 {@code {"mcpServers":{...}}} 文件。
-     *
-     * <p>两条来源合在一起：MangoBot 自己起的 Java 工具 server（本进程内，见 {@link JavaToolMcpServer}），
-     * 以及「能力页」上配置并启用的外部 MCP 连接。
-     *
-     * <p>{@code key} 只写到自家那条 server 的请求头上——外部 server 不认识这个头。身份必须每次请求都带：
-     * 一个 MCP server 服务该来源下所有会话，服务端只能从这里知道是哪个会话在调工具。
-     *
-     * <p>外部连接的 {@code connection_config} 里存的就是单个 server 的对象字面量（页面上是个自由 JSON
-     * 文本框），这里只补 claude 需要的 {@code type}：STDIO 不写（默认值），SSE / HTTP 转成小写。
-     *
-     * <p>两条来源都没东西时返回 empty——此时不传 {@code --mcp-config}，
-     * 而不是传一个空的 {@code mcpServers}，免得 spawn 参数里多一份没意义的文件。
-     */
-    private Optional<Path> writeMcpConfig(Path sessionDir, String key, SessionSource source) {
-        ObjectNode servers = MAPPER.createObjectNode();
-        int written = writeJavaToolServer(servers, key, source) + writeConfiguredServers(servers);
-        if (written == 0) {
+    // 本进程起的 Java 工具 server；一个工具都没暴露时干脆不给，省掉一次注定空手而归的连接
+    private Optional<McpServerSpec> javaToolServer(String key, SessionSource source) {
+        if (javaToolMcpServer.exposedToolCount(source) == 0) {
             return Optional.empty();
         }
-
-        ObjectNode root = MAPPER.createObjectNode();
-        root.set("mcpServers", servers);
-
-        FileUtils.createDirectory(sessionDir);
-        Path file = sessionDir.resolve(MCP_CONFIG_FILE);
-        FileUtils.writeString(file, root.toPrettyString());
-        log.info("已为会话写入 {} 条 MCP 连接配置：{}", written, file);
-        return Optional.of(file);
-    }
-
-    /**
-     * 写一份"零个 MCP server"的配置，配合 {@code --strict-mcp-config} 表达"就是没有工具"。
-     *
-     * <p>不传 {@code --mcp-config} 也能达到同样的效果，但那是在赌"claude 不会去读别处的
-     * {@code .mcp.json}"。写一份空的再声明只认它，是把这个赌注去掉。
-     */
-    private static Path writeEmptyMcpConfig(Path sessionDir) {
-        ObjectNode root = MAPPER.createObjectNode();
-        root.set("mcpServers", MAPPER.createObjectNode());
-        FileUtils.createDirectory(sessionDir);
-        Path file = sessionDir.resolve(MCP_CONFIG_FILE);
-        FileUtils.writeString(file, root.toPrettyString());
-        return file;
-    }
-
-    /**
-     * MangoBot 自己起的 Java 工具 server（本进程内），按来源连对应的那个端点。
-     *
-     * <p>一个工具都没暴露时干脆不写：省掉 claude 侧一次注定空手而归的连接。
-     */
-    private int writeJavaToolServer(ObjectNode servers, String key, SessionSource source) {
-        if (javaToolMcpServer.exposedToolCount(source) == 0) {
-            return 0;
-        }
-        ObjectNode server = servers.putObject(JavaToolMcpServer.MCP_SERVER_NAME);
+        ObjectNode server = MAPPER.createObjectNode();
         server.put("type", "http");
         server.put("url", javaToolMcpServer.serverUrl(source));
+        // 身份必须每次请求都带：一个 MCP server 服务该来源下所有会话，
+        // 服务端只能从这里知道是哪个会话在调工具。外部 server 不认识这个头，所以只写在自家这条上。
         server.putObject("headers").put(JavaToolMcpServer.SESSION_HEADER, key);
-        return 1;
+        return Optional.of(new McpServerSpec(JavaToolMcpServer.MCP_SERVER_NAME, server));
     }
 
-    /** 「能力页」上配置并启用的外部 MCP 连接。 */
-    private int writeConfiguredServers(ObjectNode servers) {
-        int written = 0;
+    // 「能力页」上配置并启用的外部 MCP 连接
+    private List<McpServerSpec> configuredServers() {
+        List<McpServerSpec> specs = new ArrayList<>();
         for (AgentMcpConfig config : mcpConfigService.listEnabled()) {
             String name = config.getMcpName();
             if (name == null || name.isBlank()) {
@@ -804,13 +416,56 @@ public class ClaudeRuntimeManager {
             if (type != null) {
                 server.put("type", type);
             }
-            servers.set(name, server);
-            written++;
+            specs.add(new McpServerSpec(name, server));
         }
-        return written;
+        return specs;
     }
 
-    /** 解析 {@code connection_config}；不是 JSON 对象就跳过（一条坏配置不该拖垮 spawn）。 */
+    // ========================================================================
+    // 内部
+    // ========================================================================
+
+    // 空格分隔的白名单字符串 → 列表；空串表示一个都不给
+    private static List<String> splitTools(String builtinTools) {
+        if (builtinTools == null || builtinTools.isBlank()) {
+            return List.of();
+        }
+        return Arrays.stream(builtinTools.trim().split("\\s+")).filter(s -> !s.isBlank()).toList();
+    }
+
+    /**
+     * 拉起子进程时要注入的端点凭据；只在 spawn 那刻算一次，改完要等会话重建才生效。
+     *
+     * @throws IllegalStateException 端点不可用；消息即失败原因，会被上层兜底捕获成错误事件
+     */
+    private static Map<String, String> envOf(ModelEndpoint endpoint) {
+        if (!endpoint.ok()) {
+            throw new IllegalStateException("主模型不可用：" + endpoint.problem());
+        }
+        return Map.of(
+                "ANTHROPIC_BASE_URL", endpoint.baseUrl(),
+                "ANTHROPIC_AUTH_TOKEN", endpoint.apiKey(),
+                "ANTHROPIC_MODEL", endpoint.modelName());
+    }
+
+    /**
+     * 解析某个模型角色的端点，配好就用、没配好就回退主模型。
+     *
+     * <p>{@code assistant} 角色建了但没指定模型很正常，这时"用主模型评一遍"远比"评不了"有用
+     * ——只要结果里写明用的是哪个模型。
+     */
+    private ModelEndpoint endpointFor(ModelRole role) {
+        ModelEndpoint endpoint = MangoModelApi.resolveEndpoint(role);
+        if (endpoint.ok() || role == ModelRole.MAIN) {
+            return endpoint;
+        }
+        ModelEndpoint fallback = mainModelEndpoint();
+        log.info("模型角色「{}」不可用（{}），回退主模型 {}", role.getRoleKey(), endpoint.problem(),
+                fallback.ok() ? fallback.modelName() : "（主模型也不可用）");
+        return fallback;
+    }
+
+    // 解析 connection_config；不是 JSON 对象就跳过（一条坏配置不该拖垮 spawn）
     private ObjectNode parseConnectionConfig(AgentMcpConfig config) {
         String raw = config.getConnectionConfig();
         if (raw == null || raw.isBlank()) {
@@ -830,7 +485,7 @@ public class ClaudeRuntimeManager {
         }
     }
 
-    /** claude 的 transport 取值；STDIO 是默认值，不写 type。 */
+    // claude 的 transport 取值；STDIO 是默认值，不写 type
     private static String transportTypeForClaude(String transportType) {
         if (transportType == null || transportType.isBlank()) {
             return null;
@@ -839,7 +494,7 @@ public class ClaudeRuntimeManager {
         return "stdio".equals(normalized) ? null : normalized;
     }
 
-    /** 启动时把端点状态讲清楚——但只讲地址与模型名，密钥绝不进日志。 */
+    // 启动时把端点状态讲清楚——但只讲地址与模型名，密钥绝不进日志
     private void logEndpointState() {
         ModelEndpoint endpoint = mainModelEndpoint();
         if (endpoint.ok()) {
@@ -849,49 +504,5 @@ public class ClaudeRuntimeManager {
             log.warn("Claude 运行时端点不可用：{}。到「模型设置」里把主模型配好即可，"
                     + "不需要重启——下次拉起子进程时会重新读。", endpoint.problem());
         }
-    }
-
-    /** 会话工作目录需为文件系统安全名：Windows 路径段不允许 ':'，故把 key 里的分隔符替换掉。 */
-    /**
-     * 某个会话自己的 claude 配置目录（也放着它的会话转录）。
-     *
-     * <p>公开是给 dev 诊断端点用的；正常路径上只有 {@link ClaudeSession} 会用到它。
-     */
-    public Path sessionConfigDir(String key) {
-        return sessionWorkingDir(key).resolve(CLAUDE_CONFIG_SUBDIR);
-    }
-
-    /** 删掉某个会话自己的 config 目录——即"清空它的上下文"。 */
-    private boolean deleteSessionConfigDir(String key) {
-        Path dir = sessionConfigDir(key);
-        if (!Files.isDirectory(dir)) {
-            return false;
-        }
-        try (Stream<Path> walk = Files.walk(dir)) {
-            walk.sorted(java.util.Comparator.reverseOrder()).forEach(p -> {
-                try {
-                    Files.deleteIfExists(p);
-                } catch (IOException e) {
-                    log.warn("删除会话配置目录时出错：{}", p, e);
-                }
-            });
-            log.info("已删除会话配置目录（上下文随之清空）：{}", dir);
-            return true;
-        } catch (IOException e) {
-            log.error("删除会话配置目录失败：{}", dir, e);
-            return false;
-        }
-    }
-
-    private Path sessionWorkingDir(String key) {
-        String safe = key.replaceAll("[^A-Za-z0-9_-]", "_");
-        return workingDir.resolve(safe);
-    }
-
-    private static Path resolveDir(String configured, String fallback) {
-        if (configured != null && !configured.isBlank()) {
-            return Paths.get(configured.trim()).toAbsolutePath().normalize();
-        }
-        return FileUtils.resolvePath(fallback);
     }
 }

@@ -59,12 +59,12 @@ public class FileUtils {
         ApplicationHome home = new ApplicationHome(FileUtils.class);
         File source = home.getSource();
 
-        if (source.isFile() && source.getName().toLowerCase().endsWith(".jar")) {
+        // source 在 surefire 那类自定义 classloader 下为 null（不是 JAR 跑法），落到 user.dir
+        if (source != null && source.isFile() && source.getName().toLowerCase().endsWith(".jar")) {
             return source.toPath().getParent(); // JAR 同级目录
-        } else {
-            // 开发模式：user.dir 的目录
-            return Paths.get(System.getProperty("user.dir"));
         }
+        // 开发模式：user.dir 的目录
+        return Paths.get(System.getProperty("user.dir"));
     }
 
     /**

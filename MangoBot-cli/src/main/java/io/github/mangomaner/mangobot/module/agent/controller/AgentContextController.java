@@ -1,7 +1,11 @@
 package io.github.mangomaner.mangobot.module.agent.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import io.github.mangomaner.mangobot.infra.claude.transcript.ClaudeContextUsage;
+import io.github.mangomaner.mangobot.infra.claude.transcript.ClaudeTranscript;
+import io.github.mangomaner.mangobot.infra.claude.transcript.ClaudeTranscriptEntry;
 import io.github.mangomaner.mangobot.module.agent.capability.prompt.SystemPromptComposer;
+import io.github.mangomaner.mangobot.module.agent.chat.SessionKeys;
 import io.github.mangomaner.mangobot.module.agent.context.ContextAnalysisService;
 import io.github.mangomaner.mangobot.module.agent.context.ContextTranscriptService;
 import io.github.mangomaner.mangobot.module.agent.model.enums.SessionSource;
@@ -42,8 +46,8 @@ public class AgentContextController {
      */
     public record TranscriptVO(String sessionKey, String sessionId, long fileSize, int lineCount,
                                String systemPrompt, List<String> sessionIds, List<RecordVO> records,
-                               List<ContextAnalysisService.CallUsage> usage,
-                               List<ContextAnalysisService.Compaction> compactions) {
+                               List<ClaudeContextUsage.CallUsage> usage,
+                               List<ClaudeContextUsage.Compaction> compactions) {
     }
 
     public record RecordVO(int index, String type, JsonNode json) {
@@ -53,14 +57,13 @@ public class AgentContextController {
     @Operation(summary = "让 CLI 给出上下文分类明细（会复制一份会话目录再跑，跑完删除）")
     public BaseResponse<String> report(@RequestParam String botId,
                                        @RequestParam String source,
-                                       @RequestParam String targetId,
-                                       @RequestParam(required = false) String sessionId) {
+                                       @RequestParam String targetId) {
         SessionSource sessionSource = parseSource(source);
         if (sessionSource == null) {
             return ResultUtils.error(400, "来源不认识：" + source);
         }
         return ResultUtils.success(analysisService.reportFromCli(
-                ContextTranscriptService.sessionKey(botId, source, targetId), sessionSource, sessionId));
+                SessionKeys.of(sessionSource, botId, targetId), botId, sessionSource));
     }
 
     @GetMapping("/transcript")
@@ -73,14 +76,14 @@ public class AgentContextController {
         if (sessionSource == null) {
             return ResultUtils.error(400, "来源不认识：" + source);
         }
-        String key = ContextTranscriptService.sessionKey(botId, source, targetId);
+        String key = SessionKeys.of(sessionSource, botId, targetId);
         String systemPrompt = systemPromptComposer.compose(sessionSource);
 
         List<String> sessionIds = transcriptService.listSessions(key).stream()
-                .map(ContextTranscriptService.SessionFile::sessionId)
+                .map(ClaudeTranscript.SessionFile::sessionId)
                 .toList();
 
-        ContextTranscriptService.Transcript transcript = transcriptService.load(key, sessionId);
+        ClaudeTranscript.Transcript transcript = transcriptService.load(key, sessionId);
         if (transcript == null) {
             // 没有转录不是错误：刚建的会话还没跑过任何一轮
             return ResultUtils.success(
@@ -89,8 +92,8 @@ public class AgentContextController {
         }
 
         List<RecordVO> records = new ArrayList<>();
-        for (ContextTranscriptService.Record record : transcript.records()) {
-            records.add(new RecordVO(record.index(), record.type(), transcriptService.truncate(record.json())));
+        for (ClaudeTranscriptEntry entry : transcript.entries()) {
+            records.add(new RecordVO(entry.index(), entry.type(), transcriptService.truncate(entry.json())));
         }
         return ResultUtils.success(new TranscriptVO(key, transcript.sessionId(),
                 transcript.fileSize(), transcript.lineCount(), systemPrompt, sessionIds, records,
@@ -110,7 +113,7 @@ public class AgentContextController {
         if (parseSource(source) == null) {
             return ResponseEntity.badRequest().build();
         }
-        String key = ContextTranscriptService.sessionKey(botId, source, targetId);
+        String key = SessionKeys.of(SessionSource.fromKey(source), botId, targetId);
         byte[] bytes = transcriptService.imageBytes(key, sessionId, record, block, inner);
         if (bytes == null) {
             return ResponseEntity.notFound().build();

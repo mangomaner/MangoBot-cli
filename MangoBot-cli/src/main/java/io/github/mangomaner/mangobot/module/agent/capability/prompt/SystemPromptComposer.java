@@ -1,7 +1,7 @@
 package io.github.mangomaner.mangobot.module.agent.capability.prompt;
 
 import io.github.mangomaner.mangobot.module.agent.model.enums.SessionSource;
-import io.github.mangomaner.mangobot.module.agent.runtime.claude.ClaudeRuntimeProperties;
+import io.github.mangomaner.mangobot.module.agent.chat.ChatTurnProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -28,7 +28,7 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class SystemPromptComposer {
 
-    private final ClaudeRuntimeProperties properties;
+    private final ChatTurnProperties chatProperties;
 
     /**
      * 拼出该来源要投的系统提示词。
@@ -113,7 +113,7 @@ public class SystemPromptComposer {
         cleaned = cleaned.replaceAll("[\\p{Cntrl}&&[^\\n\\t]]", "");
         cleaned = cleaned.replaceAll("\\n{3,}", "\n\n").trim();
 
-        int max = properties.getMaxSystemPromptChars();
+        int max = chatProperties.getMaxSystemPromptChars();
         if (max > 0 && cleaned.length() > max) {
             log.warn("系统提示词长度 {} 超过上限 {}，已截断", cleaned.length(), max);
             cleaned = cleaned.substring(0, max);

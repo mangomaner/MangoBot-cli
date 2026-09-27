@@ -1,8 +1,8 @@
 package io.github.mangomaner.mangobot.web_controller.claude_smoke;
 
-import io.github.mangomaner.mangobot.module.agent.runtime.claude.ClaudeEvent;
+import io.github.mangomaner.mangobot.infra.claude.session.ClaudeEvent;
 import io.github.mangomaner.mangobot.module.agent.runtime.claude.ClaudeRuntimeManager;
-import io.github.mangomaner.mangobot.module.agent.runtime.claude.ClaudeSession;
+import io.github.mangomaner.mangobot.infra.claude.session.ClaudeSession;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;

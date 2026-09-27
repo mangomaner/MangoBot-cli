@@ -3,10 +3,10 @@ package io.github.mangomaner.mangobot.web_controller.dev;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.github.mangomaner.mangobot.module.agent.runtime.claude.ClaudeEvent;
+import io.github.mangomaner.mangobot.infra.claude.session.ClaudeEvent;
 import io.github.mangomaner.mangobot.module.agent.runtime.claude.ClaudeRuntimeManager;
-import io.github.mangomaner.mangobot.module.agent.runtime.claude.ClaudeRuntimeProperties;
-import io.github.mangomaner.mangobot.module.agent.runtime.claude.ClaudeSession;
+import io.github.mangomaner.mangobot.infra.claude.ClaudeRuntimeProperties;
+import io.github.mangomaner.mangobot.infra.claude.session.ClaudeSession;
 import io.github.mangomaner.mangobot.module.agent.model.enums.SessionSource;
 import io.github.mangomaner.mangobot.module.configuration.model.domain.ModelEndpoint;
 import io.github.mangomaner.mangobot.system.common.BaseResponse;
@@ -73,7 +73,7 @@ public class DevClaudeController {
     @GetMapping("/status")
     public BaseResponse<StatusVO> status() {
         Path binary = runtimeManager.binaryPath();
-        // 配置目录现在是"每个会话一份"（见 ClaudeRuntimeManager.CLAUDE_CONFIG_SUBDIR），
+        // 配置目录现在是"每个会话一份"（见 ClaudeWorkspace.CLAUDE_CONFIG_SUBDIR），
         // 这里报 dev 会话那一份作为实况；要别的会话用 /config-seed?sessionKey=…
         Path configDir = runtimeManager.sessionConfigDir(DEV_SESSION_KEY);
         Path workingDir = runtimeManager.workingDir();
