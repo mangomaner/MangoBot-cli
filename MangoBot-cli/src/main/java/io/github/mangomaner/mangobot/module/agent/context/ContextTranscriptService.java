@@ -29,8 +29,22 @@ import java.util.stream.Stream;
 @Slf4j
 public class ContextTranscriptService {
 
-    /** 超过这个长度的字符串在返回给前端时会被换成省略标记（图片 base64 和超长 tool_result 都靠它）。 */
-    private static final int MAX_STRING_CHARS = 4096;
+    /**
+     * 超过这个长度的字符串才会被截断。
+     *
+     * <p>阈值放得比较宽：一般的长文本——**压缩摘要**（实测 8k 字符）、模型的长回复、
+     * 大段工具输出——都该原样给前端，前端自己会折叠。真正要挡的是图片 base64
+     * （实测几十万字符）和病态超长的工具输出。
+     */
+    private static final int MAX_STRING_CHARS = 16384;
+
+    /**
+     * 截断时保留的前缀长度。
+     *
+     * <p><b>不能整条换成标记</b>：那样等于把内容删了。压缩摘要、被压缩掉的对话，
+     * 恰恰是"信息不全"时最想读的东西。留一段能读的，剩下的给个字数。
+     */
+    private static final int KEEP_PREFIX_CHARS = 4096;
 
     private final ClaudeRuntimeManager runtimeManager;
     private final ObjectMapper mapper = new ObjectMapper();
@@ -165,9 +179,12 @@ public class ContextTranscriptService {
         }
         if (node.isTextual()) {
             String text = node.asText();
-            return text.length() <= MAX_STRING_CHARS
-                    ? node
-                    : TextNode.valueOf("<已省略 " + text.length() + " 字符>");
+            if (text.length() <= MAX_STRING_CHARS) {
+                return node;
+            }
+            return TextNode.valueOf(text.substring(0, KEEP_PREFIX_CHARS)
+                    + System.lineSeparator() + "…<已省略 "
+                    + (text.length() - KEEP_PREFIX_CHARS) + " 字符>");
         }
         if (node.isObject()) {
             var copy = mapper.createObjectNode();

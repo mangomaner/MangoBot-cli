@@ -97,7 +97,7 @@ public class ContextAnalysisService {
             long input = usage.path("input_tokens").asLong();
             long cacheRead = usage.path("cache_read_input_tokens").asLong();
             long cacheCreate = usage.path("cache_creation_input_tokens").asLong();
-            out.add(new CallUsage(out.size() + 1,
+            out.add(new CallUsage(out.size() + 1, record.index(),
                     record.json().path("timestamp").asText(""),
                     input, cacheRead, cacheCreate,
                     input + cacheRead + cacheCreate,
@@ -218,7 +218,52 @@ public class ContextAnalysisService {
     }
 
     /** 一次模型调用的上下文用量。{@code total} 就是那一刻模型看到的上下文总量。 */
-    public record CallUsage(int call, String timestamp, long inputTokens, long cacheReadTokens,
-                            long cacheCreationTokens, long total, long outputTokens) {
+    public record CallUsage(int call, int record, String timestamp, long inputTokens,
+                            long cacheReadTokens, long cacheCreationTokens, long total,
+                            long outputTokens) {
+    }
+
+    /** 转录里的一次压缩。CLI 在 {@code compact_boundary} 记录上留了压前压后的 token 数。 */
+    public record Compaction(int record, String timestamp, String trigger,
+                             long preTokens, long postTokens) {
+    }
+
+    /**
+     * 挑出转录里发生过的压缩。
+     *
+     * <p>为什么重要：**压缩之后上下文会掉一大截，但压缩本身不产生新的 usage**。所以在下一次模型调用
+     * 发生之前，最后一次调用的 usage 仍然是压缩前的旧数字——拿它当"当前上下文"会显示一个已经过期的值
+     * （实测：压缩前 31k、压缩后实际 12k，而页面上还写着 31k）。
+     */
+    static List<Compaction> collectCompactions(List<ContextTranscriptService.Record> records) {
+        List<Compaction> out = new ArrayList<>();
+        for (ContextTranscriptService.Record record : records) {
+            if (!"compact_boundary".equals(record.json().path("subtype").asText(""))) {
+                continue;
+            }
+            JsonNode meta = record.json().path("compactMetadata");
+            out.add(new Compaction(record.index(),
+                    record.json().path("timestamp").asText(""),
+                    meta.path("trigger").asText(""),
+                    meta.path("preTokens").asLong(),
+                    meta.path("postTokens").asLong()));
+        }
+        return out;
+    }
+
+    /**
+     * 这个会话最近一次模型调用的上下文大小；读不到返回 0。
+     *
+     * <p>给"该不该压缩"的判断用。**和页面上显示的是同一个数**——阈值判断和界面各算各的话，
+     * 会出现"页面说 12k、后台却按 31k 去压"这种事。
+     */
+    public long latestContextTokens(String sessionKey, String sessionId) {
+        List<CallUsage> usage = usageByCall(sessionKey, sessionId);
+        return usage.isEmpty() ? 0L : usage.get(usage.size() - 1).total();
+    }
+
+    public List<Compaction> compactionsOf(String sessionKey, String sessionId) {
+        ContextTranscriptService.Transcript t = transcriptService.load(sessionKey, sessionId);
+        return t == null ? List.of() : collectCompactions(t.records());
     }
 }

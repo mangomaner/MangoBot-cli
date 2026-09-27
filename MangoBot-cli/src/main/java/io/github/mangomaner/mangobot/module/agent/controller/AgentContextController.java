@@ -42,7 +42,8 @@ public class AgentContextController {
      */
     public record TranscriptVO(String sessionKey, String sessionId, long fileSize, int lineCount,
                                String systemPrompt, List<String> sessionIds, List<RecordVO> records,
-                               List<ContextAnalysisService.CallUsage> usage) {
+                               List<ContextAnalysisService.CallUsage> usage,
+                               List<ContextAnalysisService.Compaction> compactions) {
     }
 
     public record RecordVO(int index, String type, JsonNode json) {
@@ -83,7 +84,8 @@ public class AgentContextController {
         if (transcript == null) {
             // 没有转录不是错误：刚建的会话还没跑过任何一轮
             return ResultUtils.success(
-                    new TranscriptVO(key, null, 0, 0, systemPrompt, sessionIds, List.of(), List.of()));
+                    new TranscriptVO(key, null, 0, 0, systemPrompt, sessionIds,
+                            List.of(), List.of(), List.of()));
         }
 
         List<RecordVO> records = new ArrayList<>();
@@ -92,7 +94,8 @@ public class AgentContextController {
         }
         return ResultUtils.success(new TranscriptVO(key, transcript.sessionId(),
                 transcript.fileSize(), transcript.lineCount(), systemPrompt, sessionIds, records,
-                analysisService.usageByCall(key, transcript.sessionId())));
+                analysisService.usageByCall(key, transcript.sessionId()),
+                analysisService.compactionsOf(key, transcript.sessionId())));
     }
 
     @GetMapping("/image")

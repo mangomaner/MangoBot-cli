@@ -3,6 +3,8 @@ package io.github.mangomaner.mangobot.module.agent.chat;
 import io.github.mangomaner.mangobot.module.agent.capability.tool.TurnContext;
 import io.github.mangomaner.mangobot.module.agent.capability.tool.TurnContextRegistry;
 import io.github.mangomaner.mangobot.module.agent.runtime.claude.ClaudeEvent;
+import io.github.mangomaner.mangobot.api.MangoConfigApi;
+import io.github.mangomaner.mangobot.module.agent.context.ContextAnalysisService;
 import io.github.mangomaner.mangobot.module.agent.runtime.claude.ClaudeImage;
 import io.github.mangomaner.mangobot.module.agent.runtime.claude.ClaudeRuntimeManager;
 import io.github.mangomaner.mangobot.module.agent.runtime.claude.ClaudeRuntimeProperties;
@@ -47,6 +49,7 @@ public class ChatTurnRunner {
     private static final long MAX_IMAGE_BYTES = 2L * 1024 * 1024;
 
     private final ClaudeRuntimeManager runtimeManager;
+    private final ContextAnalysisService analysisService;
     private final ClaudeRuntimeProperties properties;
     private final TurnControlRegistry turnControls;
 
@@ -95,10 +98,79 @@ public class ChatTurnRunner {
                     .collectList()
                     .block(Duration.ofSeconds(properties.getTurnTimeoutSeconds() + 5L));
             summarize(sessionKey, events, context, images.size());
+            compactIfTooBig(session, target.botId(), sessionKey);
         } catch (Exception e) {
             log.warn("轮次执行失败：{}", sessionKey, e);
         } finally {
             TurnContextRegistry.end(sessionKey);
+        }
+    }
+
+    // ========================================================================
+    // 上下文压缩
+    // ========================================================================
+
+    /** 压缩是 CLI 自己的斜杠命令，当成一轮发过去。 */
+    private static final String COMPACT_COMMAND = "/compact";
+
+    /** 配置项 key；值单位是千 token，0 表示不压缩。 */
+    private static final String COMPACT_THRESHOLD_KEY = "claude.compact_threshold_k";
+    private static final int COMPACT_THRESHOLD_DEFAULT_K = 30;
+
+    /**
+     * 一轮结束后看看上下文是不是太大了，太大就压缩一次。
+     *
+     * <p><b>为什么挑"轮次结束"这个点</b>：压缩会重写整个上下文，插在轮次中间会把正在进行的那一轮搅乱；
+     * 而且压缩自己也要以 {@code result} 收尾，走 {@link ClaudeSession#trySendTurn} 这条路，
+     * 事件归属、闸门、完轮时机全都沿用现有机制，不用为它开旁路。
+     *
+     * <p><b>为什么同步等它跑完</b>：这里是 {@code run()} 的末尾，等完才轮到下一批消息开轮。
+     * 不等的话下一轮会跟压缩撞在一起。
+     *
+     * <p>压缩意味着 bot 忘掉更早的内容，所以只在超过阈值时做；阈值按 bot 可配（配置页「上下文」分类），
+     * 配 0 就整个关掉。
+     */
+    private void compactIfTooBig(ClaudeSession session, long botId, String sessionKey) {
+        int thresholdK = compactThresholdK(botId);
+        if (thresholdK <= 0) {
+            return;
+        }
+        // 走分析服务那份（从转录里读每次调用各自的 usage），而不是这一轮的事件流：
+        // 事件流最后那条 result 的 usage 可能是整轮累计，那会严重高估、导致反复压缩。
+        long contextTokens = analysisService.latestContextTokens(sessionKey, null);
+        if (contextTokens < thresholdK * 1000L) {
+            return;
+        }
+
+        log.info("上下文 {} token 超过阈值 {}k，压缩一次：{}", contextTokens, thresholdK, sessionKey);
+        try {
+            Optional<Flux<ClaudeEvent>> flux = session.trySendTurn(new ClaudeTurnInput(COMPACT_COMMAND));
+            if (flux.isEmpty()) {
+                log.warn("会话忙，这次压缩没发出去：{}", sessionKey);
+                return;
+            }
+            flux.get().collectList().block(Duration.ofSeconds(properties.getTurnTimeoutSeconds() + 5L));
+            log.info("压缩完成：{}", sessionKey);
+        } catch (Exception e) {
+            // 压缩失败不该影响这个会话继续用——下一轮照跑，下次再试
+            log.warn("压缩上下文失败，这一轮忽略：{}", sessionKey, e);
+        }
+    }
+
+    /** 阈值按 bot 可配；读不到就用默认值。 */
+    private static int compactThresholdK(long botId) {
+        String raw = MangoConfigApi.getBotConfigValue(COMPACT_THRESHOLD_KEY, botId,
+                String.valueOf(COMPACT_THRESHOLD_DEFAULT_K));
+        return parseThresholdK(raw);
+    }
+
+    /** 配置值 → 千 token 数。配错了不能把功能弄挂，退回默认值。 */
+    static int parseThresholdK(String raw) {
+        try {
+            return Integer.parseInt(raw == null ? "" : raw.trim());
+        } catch (NumberFormatException e) {
+            log.warn("压缩阈值配的不是数字（{}），按默认 {}k 处理", raw, COMPACT_THRESHOLD_DEFAULT_K);
+            return COMPACT_THRESHOLD_DEFAULT_K;
         }
     }
 

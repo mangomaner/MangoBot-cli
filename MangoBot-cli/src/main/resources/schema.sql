@@ -167,7 +167,9 @@ INSERT INTO bot_configs (bot_id, config_key, config_value, config_type, metadata
     (NULL, 'private.enable_list', 'true', 'BOOLEAN', NULL, '启用私聊黑白名单', '', 'BW_list', 1),
     (NULL, 'group.record_list', '[]', 'GROUP_LIST_SELECTOR', '{"listType":"group"}', '群聊消息记录名单', '名单内的群聊始终记录消息', 'message_record', 1),
     (NULL, 'private.record_list', '[]', 'PRIVATE_LIST_SELECTOR', '{"listType":"private"}', '私聊消息记录名单', '名单内的私聊始终记录消息', 'message_record', 1),
-    (NULL, 'bot.markdown_to_txt', 'true', 'BOOLEAN', NULL, '将md格式转为纯文本发送', '', 'format', 1);
+    (NULL, 'bot.markdown_to_txt', 'true', 'BOOLEAN', NULL, '将md格式转为纯文本发送', '', 'format', 1),
+    (NULL, 'claude.compact_threshold_k', '30', 'INTEGER', '{"min":0,"max":500}', '上下文压缩阈值（k）',
+     '一轮结束时上下文超过这个值就压缩一次；0 表示关闭。单位是千 token', 'context', 1);
 -- 上述列表示例：["123456789","1011121314"]，true为白名单，false为黑名单
 
 -- 系统配置初始数据（全局配置，无 bot_id）
