@@ -7,12 +7,21 @@ import io.github.mangomaner.mangobot.annotation.MangoToolParam;
 import io.github.mangomaner.mangobot.api.MangoFileApi;
 import io.github.mangomaner.mangobot.api.MangoOneBotApi;
 import io.github.mangomaner.mangobot.module.agent.capability.tool.MangoToolContext;
+import io.github.mangomaner.mangobot.module.agent.capability.tool.ToolImage;
+import io.github.mangomaner.mangobot.module.agent.capability.tool.ToolResult;
 import io.github.mangomaner.mangobot.module.agent.capability.tool.TurnContext;
 import io.github.mangomaner.mangobot.module.agent.capability.tool.TurnContextRegistry;
 import io.github.mangomaner.mangobot.module.agent.model.enums.SessionSource;
 import io.github.mangomaner.mangobot.module.file.model.domain.BotFiles;
+import io.github.mangomaner.mangobot.utils.FileUtils;
 import lombok.extern.slf4j.Slf4j;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -32,6 +41,13 @@ public class QqReplyTool {
 
     /** 一轮最多发几条；模型偶尔会连着刷屏，这是唯一闸门。 */
     private static final int MAX_SENDS_PER_TURN = 4;
+
+    /** list_memes 默认给模型看几张、最多几张。 */
+    private static final int DEFAULT_LIST_LIMIT = 6;
+    private static final int MAX_LIST_LIMIT = 10;
+
+    /** 工具结果里单图字节上限。超了就跳过——API 单图上限 5MB，库里只有 0.65% 超。 */
+    private static final long MAX_TOOL_IMAGE_BYTES = 5L * 1024 * 1024;
 
     /**
      * {@code reply_to} 的说明。这段文字是唯一在教模型"什么时候才该引用"的地方，
@@ -70,11 +86,14 @@ public class QqReplyTool {
     }
 
     @MangoToolMethod(name = "send_meme",
-            description = "从管理员收藏的表情里挑一张最贴合 keyword 的发出去。想用表情包回应就调它，"
-                    + "keyword 用一两个词描述想要的情绪或内容（如 开心 / 无语 / 摸鱼）。"
-                    + "能选的范围是人工挑过的，所以挑不到贴切的很正常——那就改用文字，别硬凑。")
+            description = "发一张表情。两种用法：只给 keyword 就按描述挑一张；"
+                    + "给 fileId 就发你刚在 list_memes 里看中的那张。"
+                    + "拿不准哪张合适时先调 list_memes 看一眼再发。")
     public String sendMeme(
-            @MangoToolParam(name = "keyword", description = "想要的情绪或内容，一两个词") String keyword,
+            @MangoToolParam(name = "keyword", required = false,
+                    description = "想要的情绪或内容，一两个词（如 开心 / 无语 / 摸鱼）") String keyword,
+            @MangoToolParam(name = "fileId", required = false,
+                    description = "list_memes 里给出的 fileId；给了它就按这张发，忽略 keyword") String fileId,
             @MangoToolParam(name = "reply_to", required = false, description = REPLY_TO_DESC) Long replyTo) {
         TurnContext context = resolveContext();
         String rejection = acquireSendSlot(context);
@@ -82,15 +101,65 @@ public class QqReplyTool {
             return rejection;
         }
 
-        BotFiles meme = pickMeme(keyword);
-        if (meme == null) {
-            return "收藏的表情库为空（要 meme、已收藏、且有描述），这条没有发出去，改用文字回复吧。";
+        BotFiles meme;
+        if (fileId != null && !fileId.isBlank()) {
+            meme = findFavorite(fileId.trim());
+            if (meme == null) {
+                return "fileId=" + fileId.trim() + " 不在收藏的表情里，这张没有发出去。"
+                        + "只能发 list_memes 给过你的那些。";
+            }
+        } else {
+            meme = pickMeme(keyword);
+            if (meme == null) {
+                return "收藏的表情库为空（要 meme、已收藏、且有描述），这条没有发出去，改用文字回复吧。";
+            }
         }
 
         send(context, MessageSendSupport.imageMessage(meme, normalizeReplyTo(replyTo, context)));
         log.info("已发送表情包：source={} target={} keyword={} fileId={}",
                 context.source().getSourceKey(), context.targetId(), keyword, meme.getFileId());
         return "已发送表情包。";
+    }
+
+    /**
+     * 把收藏池里的表情图给模型看，让它自己挑。
+     *
+     * <p>文字里按顺序列出 fileId，图片按同一顺序跟在后面——模型靠序号对应，不用猜。
+     */
+    @MangoToolMethod(name = "list_memes",
+            description = "看一眼收藏的表情里有哪些可选。返回若干张图，每张配一个 fileId，"
+                    + "挑中哪张就把它的 fileId 交给 send_meme。"
+                    + "不确定该发哪张、或者只给 keyword 挑出来的不合适时用它。")
+    public ToolResult listMemes(
+            @MangoToolParam(name = "keyword", required = false,
+                    description = "想找的情绪或内容，一两个词；不填就把收藏的都过一遍") String keyword,
+            @MangoToolParam(name = "limit", required = false,
+                    description = "最多看几张，默认 6，上限 10") Integer limit) {
+        List<BotFiles> pool = MangoFileApi.getFavoriteMemes();
+        if (pool.isEmpty()) {
+            return ToolResult.text("收藏的表情库是空的，没有可发的表情。");
+        }
+
+        int n = Math.min(limit == null || limit <= 0 ? DEFAULT_LIST_LIMIT : limit, MAX_LIST_LIMIT);
+        List<BotFiles> candidates = rank(pool, keyword).stream().limit(n).toList();
+
+        List<String> lines = new ArrayList<>();
+        List<ToolImage> images = new ArrayList<>();
+        for (BotFiles meme : candidates) {
+            ToolImage image = readToolImage(meme);
+            if (image == null) {
+                continue;  // 太大或读不出来就跳过，不让整次调用失败
+            }
+            lines.add("[" + (images.size() + 1) + "] fileId=" + meme.getFileId()
+                    + "  " + oneLine(meme.getDescription()));
+            images.add(image);
+        }
+        if (images.isEmpty()) {
+            return ToolResult.text("收藏的表情都读不出来（文件缺失或过大），没有可发的表情。");
+        }
+
+        lines.add("挑中哪张就把它的 fileId 交给 send_meme。都不合适就用文字，别硬凑。");
+        return ToolResult.of(String.join("\n", lines), images);
     }
 
     @MangoToolMethod(name = "send_image",
@@ -193,37 +262,105 @@ public class QqReplyTool {
     }
 
     /**
-     * 挑一张表情：按 keyword 与描述的命中数打分，取最高分；一条都没命中就在池子里随机取。
+     * 不看图、只按 keyword 挑一张。
      *
-     * <p><b>池子是「收藏的表情」</b>，不是全部 meme——取数条件收在
-     * {@link MangoFileApi#getUsableFavoriteMemes()} 一处（要已收藏、有描述、有本地文件）。
-     * 这里的过滤条件 {@code keyword} 与那些是两回事：前者是挑哪张，后者是有没有资格被挑。
-     *
-     * <p>池子为空时返回 null，由调用方回一句可读的话让模型退回文字。**这是常态而不是异常**——
-     * 收藏是人工挑的，池子通常只有几十张，很多情绪在里面根本没有对应的图。
+     * <p>这条路只能靠描述打分，所以先筛出有描述的——没描述的在这里没法参与，
+     * 但它们在 list_memes 那条路里照样能用。
      */
     private BotFiles pickMeme(String keyword) {
-        List<BotFiles> usable = MangoFileApi.getUsableFavoriteMemes();
-        if (usable.isEmpty()) {
-            log.warn("收藏的表情库为空，send_meme 无法出图（需要 meme、favorite=1、有描述与本地文件）");
+        List<BotFiles> described = MangoFileApi.getFavoriteMemes().stream()
+                .filter(file -> file.getDescription() != null && !file.getDescription().isBlank())
+                .toList();
+        if (described.isEmpty()) {
+            log.warn("收藏的表情里没有带描述的，send_meme 只能走 list_memes 那条路");
             return null;
         }
 
         String trimmed = keyword == null ? "" : keyword.trim();
         if (trimmed.isEmpty()) {
-            return usable.get(ThreadLocalRandom.current().nextInt(usable.size()));
+            return randomOf(described);
         }
 
         BotFiles best = null;
         int bestScore = 0;
-        for (BotFiles file : usable) {
+        for (BotFiles file : described) {
             int score = score(trimmed, file.getDescription());
             if (score > bestScore) {
                 best = file;
                 bestScore = score;
             }
         }
-        return best != null ? best : usable.get(ThreadLocalRandom.current().nextInt(usable.size()));
+        return best != null ? best : randomOf(described);
+    }
+
+    /**
+     * 按 fileId 从收藏池里取。
+     *
+     * <p>校验在这里：模型在聊天记录里看得到别人发的图的 fileId，不校验它就能绕过
+     * list_memes 直接发没收藏的图，人工挑的这套就白设了。
+     */
+    private BotFiles findFavorite(String fileId) {
+        return MangoFileApi.getFavoriteMemes().stream()
+                .filter(file -> fileId.equals(file.getFileId()))
+                .findFirst()
+                .orElse(null);
+    }
+
+    /** 有描述就按 keyword 打分降序，没给 keyword 或都没描述就随机。 */
+    private List<BotFiles> rank(List<BotFiles> pool, String keyword) {
+        String trimmed = keyword == null ? "" : keyword.trim();
+        if (trimmed.isEmpty()) {
+            return shuffled(pool);
+        }
+        List<BotFiles> scored = pool.stream()
+                .filter(f -> f.getDescription() != null && !f.getDescription().isBlank())
+                .sorted(Comparator.comparingInt((BotFiles f) -> -score(trimmed, f.getDescription())))
+                .toList();
+        return scored.isEmpty() ? shuffled(pool) : scored;
+    }
+
+    /**
+     * 读一张表情给模型看。读不出来返回 null（由调用方跳过）。
+     *
+     * <p>上限比 {@code ChatTurnRunner} 那条路（2MB）宽：这里是模型主动要看的，
+     * 卡太死会让它挑不到。12 张超 5MB 的占 0.65%，跳过代价很小。
+     */
+    private ToolImage readToolImage(BotFiles file) {
+        String path = file.getFilePath();
+        if (path == null || path.isBlank()) {
+            return null;
+        }
+        String mediaType = FileUtils.mediaTypeOf(path);
+        if (mediaType == null) {
+            return null;
+        }
+        try {
+            Path resolved = FileUtils.resolvePath(path);
+            long size = Files.size(resolved);
+            if (size > MAX_TOOL_IMAGE_BYTES) {
+                log.warn("表情过大，list_memes 跳过：fileId={} bytes={}", file.getFileId(), size);
+                return null;
+            }
+            return new ToolImage(mediaType, Files.readAllBytes(resolved));
+        } catch (IOException e) {
+            log.warn("表情读取失败，list_memes 跳过：fileId={} path={}", file.getFileId(), path, e);
+            return null;
+        }
+    }
+
+    /** 描述压成一行：库里的描述是多行的，塞进列表会把一行拆成好几行。 */
+    private static String oneLine(String description) {
+        return description == null ? "" : description.replaceAll("\\s+", " ").trim();
+    }
+
+    private static BotFiles randomOf(List<BotFiles> pool) {
+        return pool.get(ThreadLocalRandom.current().nextInt(pool.size()));
+    }
+
+    private static List<BotFiles> shuffled(List<BotFiles> pool) {
+        List<BotFiles> copy = new ArrayList<>(pool);
+        Collections.shuffle(copy);
+        return copy;
     }
 
     /**

@@ -25,6 +25,27 @@ public class FileUtils {
 
     private static final Object WRITE_LOCK = new Object();
 
+    /**
+     * 按扩展名猜 MIME 类型，只认图片；认不出返回 null。
+     * 送图给模型的地方（每轮附带送 / 工具结果里带）都要用它，所以放在这里共用。
+     */
+    public static String mediaTypeOf(String path) {
+        if (path == null) {
+            return null;
+        }
+        int dot = path.lastIndexOf('.');
+        if (dot < 0) {
+            return null;
+        }
+        return switch (path.substring(dot + 1).toLowerCase()) {
+            case "jpg", "jpeg" -> "image/jpeg";
+            case "png" -> "image/png";
+            case "gif" -> "image/gif";
+            case "webp" -> "image/webp";
+            default -> null;
+        };
+    }
+
     // ========================================================================
     // 基准目录
     // ========================================================================

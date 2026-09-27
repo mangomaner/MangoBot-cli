@@ -53,39 +53,27 @@ public class BotFilesServiceImpl extends ServiceImpl<BotFilesMapper, BotFiles>
         return this.list(wrapper);
     }
 
-    /**
-     * 发表情的唯一取数口：被收藏、有描述、本地有文件的 meme。
-     *
-     * <p>三个条件是缺一不可的，各自挡掉一类东西：
-     * <ul>
-     *   <li>{@code favorite=1} —— 人工在表情管理页设的质量闸门。库里上千个 meme 是群里捡来的，
-     *       没有这层筛选，bot 会挑出垃圾图和不合时宜的图。</li>
-     *   <li>{@code description} 非空 —— 挑图是按描述与 keyword 的命中打分做的，没描述的图
-     *       既没法打分、发出去也没法预期效果。</li>
-     *   <li>{@code file_path} 非空 —— 发送要读本地字节，没有落地的文件发不出去。</li>
-     * </ul>
-     *
-     * <p>为什么不写成「取全部再在 Java 里 filter」：meme 有 1800+ 行，而这个池子通常只有几十张，
-     * 每次发表情都把全表拉进内存不值得。条件放进 SQL，走索引。
-     */
+    /** 发表情能用的池子：被收藏、本地有文件的 meme。描述不作要求（见下）。 */
     @Override
-    public List<BotFiles> listUsableFavoriteMemes() {
-        return this.list(usableFavoriteMemesWrapper());
+    public List<BotFiles> listFavoriteMemes() {
+        return this.list(favoriteMemesWrapper());
     }
 
     /**
-     * 上面那五个条件的构造，单独抽出来是为了能被单元测试直接断言（不需要数据库）。
+     * 池子的取数条件，抽出来是为了能被单元测试直接断言（不连库）。
      *
-     * <p>这五个条件里丢掉任何一个都会静默降级而不是报错——尤其 {@code favorite=1}：
-     * 少了它，bot 就退回"从 1800 多张没筛选过的图里挑"，而这件事在运行期看不出来（照样能出图，
-     * 只是图变脏了）。所以值得钉住。
+     * <p>为什么**不**要求描述非空：描述是"模型看不了图"时代的替代品，只用于给 keyword 打分。
+     * 现在模型能直接看图（list_memes），没描述的图照样挑得中；要求描述只会把大量人工收藏的图
+     * 挡在外面——实测用户收藏的 13 张里没有一张有描述，池子直接空了。
+     * 需要描述的那条路（只给 keyword、不看图）自己再筛一次。
+     *
+     * <p>{@code favorite=1} 这条最关键：丢了它 bot 就退回"从 1800 多张没筛过的图里挑"，
+     * 而且不报错、看不出来。
      */
-    static LambdaQueryWrapper<BotFiles> usableFavoriteMemesWrapper() {
+    static LambdaQueryWrapper<BotFiles> favoriteMemesWrapper() {
         LambdaQueryWrapper<BotFiles> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(BotFiles::getFileType, "meme");
         wrapper.eq(BotFiles::getFavorite, 1);
-        wrapper.isNotNull(BotFiles::getDescription);
-        wrapper.ne(BotFiles::getDescription, "");
         wrapper.isNotNull(BotFiles::getFilePath);
         wrapper.ne(BotFiles::getFilePath, "");
         return wrapper;

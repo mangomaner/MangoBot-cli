@@ -105,7 +105,13 @@ public class ClaudeRuntimeProperties {
      * </ol>
      *
      * <p>注意这与 {@code --allowedTools}（权限名单）是两件事：那个管"放不放行"，这个管"存不存在"。
+     * <b>但只管存在是不够的</b>——headless 下没人点批准，没进放行名单的工具一用就被拒。
+     * 所以放行名单会从这里的值自动补齐（见 {@code ClaudeRuntimeManager.allowedToolRules}），
+     * 加工具只需要改这一处。
      * 改这里的值必须重启（spawn 参数是冻的）。
+     *
+     * <p><b>这里保持最小集</b>只是保守的兜底；实际部署由 {@code application-dev.yml} 显式给出，
+     * 那里额外放行了 {@code WebSearch / WebFetch} 给角色扮演用（技能里写明"用不用"）。
      */
     private String builtinTools = "Skill";
 

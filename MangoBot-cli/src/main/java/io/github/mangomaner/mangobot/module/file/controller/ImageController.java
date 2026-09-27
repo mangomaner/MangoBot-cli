@@ -65,7 +65,7 @@ public class ImageController {
      * <p>发表情的池子只认收藏，所以这是表情管理页最核心的一个动作。
      * 允许对没有描述的表情设收藏——收藏是"这张我想要"，描述是另一回事，
      * 拿没描述当理由拒绝收藏会让页面莫名其妙。真正用不用得上由取数那头（
-     * {@code BotFilesService.listUsableFavoriteMemes}）把关。
+     * {@code BotFilesService.listFavoriteMemes}）把关。
      */
     @PutMapping("/favorite")
     @Operation(summary = "收藏/取消收藏图片")

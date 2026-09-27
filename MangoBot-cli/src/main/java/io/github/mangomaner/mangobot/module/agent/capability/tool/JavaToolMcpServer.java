@@ -29,6 +29,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.EnumMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -404,6 +405,10 @@ public class JavaToolMcpServer {
         /**
          * 调 Java 方法并把返回值包成 MCP 结果。
          *
+         * <p><b>返回值有两种形态</b>：{@link ToolResult} 会展开成「文字 + 若干张图」的 content 列表，
+         * 其余（含 {@code String}）原样 {@code String.valueOf} 成一段文本。走图片这条路要用 MCP 的
+         * {@code ImageContent}，模型才看得到像素。
+         *
          * <p>工具自己抛异常算「工具执行失败」，按 MCP 约定回 {@code isError=true} 的<b>正常结果</b>，
          * 而不是 JSON-RPC 错误——这样模型能看到失败原因并自己决定要不要重试。
          */
@@ -419,6 +424,9 @@ public class JavaToolMcpServer {
                     args[i] = MAPPER.convertValue(raw, paramTypes[i]);
                 }
                 Object result = method.invoke(instance, args);
+                if (result instanceof ToolResult rich) {
+                    return richResult(rich);
+                }
                 return McpSchema.CallToolResult.builder()
                         .addTextContent(result == null ? "" : String.valueOf(result))
                         .build();
@@ -427,6 +435,30 @@ public class JavaToolMcpServer {
             } catch (Exception e) {
                 return errorResult(e);
             }
+        }
+
+        /**
+         * {@link ToolResult} → MCP content 列表。
+         *
+         * <p>content 不能为空（协议上 {@code content} 是必填数组），所以文字和图片都没有时补一个空串，
+         * 别构造出一个非法结果。
+         */
+        private static McpSchema.CallToolResult richResult(ToolResult result) {
+            McpSchema.CallToolResult.Builder builder = McpSchema.CallToolResult.builder();
+            boolean any = false;
+            if (result.text() != null && !result.text().isEmpty()) {
+                builder.addTextContent(result.text());
+                any = true;
+            }
+            for (ToolImage image : result.images()) {
+                builder.addContent(new McpSchema.ImageContent(
+                        null, Base64.getEncoder().encodeToString(image.data()), image.mimeType()));
+                any = true;
+            }
+            if (!any) {
+                builder.addTextContent("");
+            }
+            return builder.build();
         }
 
         private static McpSchema.CallToolResult errorResult(Throwable cause) {

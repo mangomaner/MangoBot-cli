@@ -25,11 +25,11 @@ public interface BotFilesService extends IService<BotFiles> {
     List<BotFiles> getFilesByType(String fileType);
 
     /**
-     * agent 发表情时唯一能用的池子：已收藏、有描述、有本地文件的 meme。
+     * agent 发表情时唯一能用的池子：已收藏、有本地文件的 meme（不要求有描述）。
      *
-     * @see io.github.mangomaner.mangobot.module.file.service.impl.BotFilesServiceImpl#listUsableFavoriteMemes()
+     * @see io.github.mangomaner.mangobot.module.file.service.impl.BotFilesServiceImpl#listFavoriteMemes()
      */
-    List<BotFiles> listUsableFavoriteMemes();
+    List<BotFiles> listFavoriteMemes();
 
     Boolean addFile(AddFileRequest request);
 

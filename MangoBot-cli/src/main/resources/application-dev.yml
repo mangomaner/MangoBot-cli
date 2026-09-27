@@ -19,7 +19,15 @@ logging:
 
 mangobot:
   claude:
-    # claude 内置工具白名单（空格分隔）。默认也是 Skill，这里显式写出来是因为它是"技能能不能用"的总闸：
-    # Skill 工具一旦不给，claude 会把技能广告整段从系统提示词里撤掉，所有 SKILL.md 都点不动。
-    # 不给其它内置工具（Bash/Read/Write…）：bot 的出口是 MCP 工具，那些 schema 白烧 token。
-    builtin-tools: Skill
+    # claude 内置工具白名单（空格分隔）。Skill 是"技能能不能用"的总闸：不给它，claude 会把技能广告
+    # 整段从系统提示词里撤掉，所有 SKILL.md 都点不动。
+    #
+    # WebSearch / WebFetch：给角色扮演用的。扮演洛天依时她会碰到不认识的歌名、P 主、梗——
+    # 那正是她该知道的东西，查一下比装懂或干瞪眼都对。实测（2026-09-27）本端点（DeepSeek 的
+    # Anthropic 兼容端点）WebSearch 可用，返回真实来源。
+    # 代价实测：Skill 11246 → +WebSearch 11477 → +WebFetch 11703 tokens，约 +4%。
+    #
+    # **用不用由技能决定**（这符合"行为靠提示词塑形"）：luotianyi 明确要求查；mangoman-persona
+    # 明确要求别查（群友不会为一句黑话翻资料，要查就读 mangoman-slang 那个技能）。
+    # 不给其它内置工具（Bash/Read/Write/PowerShell…）：bot 的出口是 MCP 工具，那些 schema 白烧 token。
+    builtin-tools: Skill WebSearch WebFetch

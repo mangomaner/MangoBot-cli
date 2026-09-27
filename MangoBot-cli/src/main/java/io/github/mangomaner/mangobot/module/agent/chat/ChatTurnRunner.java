@@ -22,7 +22,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 
 /**
@@ -159,7 +158,7 @@ public class ChatTurnRunner {
             log.warn("跳过一张没有本地路径的图：fileId={}", file.getFileId());
             return null;
         }
-        String mediaType = mediaTypeOf(filePath);
+        String mediaType = FileUtils.mediaTypeOf(filePath);
         if (mediaType == null) {
             log.warn("跳过一张扩展名不认识的图：fileId={} path={}", file.getFileId(), filePath);
             return null;
@@ -179,21 +178,6 @@ public class ChatTurnRunner {
             log.warn("读图失败，跳过：fileId={} path={}", file.getFileId(), filePath, e);
             return null;
         }
-    }
-
-    private static String mediaTypeOf(String path) {
-        int dot = path.lastIndexOf('.');
-        if (dot < 0 || dot == path.length() - 1) {
-            return null;
-        }
-        return switch (path.substring(dot + 1).toLowerCase(Locale.ROOT)) {
-            case "jpg", "jpeg" -> "image/jpeg";
-            case "png" -> "image/png";
-            case "gif" -> "image/gif";
-            case "webp" -> "image/webp";
-            case "bmp" -> "image/bmp";
-            default -> null;
-        };
     }
 
     /**

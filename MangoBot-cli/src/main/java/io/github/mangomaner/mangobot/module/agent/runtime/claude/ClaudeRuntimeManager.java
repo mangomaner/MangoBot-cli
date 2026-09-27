@@ -610,7 +610,7 @@ public class ClaudeRuntimeManager {
         // headless（-p）下没有人能点「批准」，不在白名单里的工具一律被拒（结果里是 permission_denials）。
         // 规则写成一条空格分隔的参数：--allowedTools 是变长参数，后面紧跟 --plugin-dir 才会停下；
         // 放在最前面就是为了让它后面一定有选项，不至于把后面的参数一起吞掉。
-        List<String> allowRules = mcpAllowRules(source);
+        List<String> allowRules = allowedToolRules(source);
         if (!allowRules.isEmpty()) {
             args.add("--allowedTools");
             args.add(String.join(" ", allowRules));
@@ -659,6 +659,31 @@ public class ClaudeRuntimeManager {
      *
      * <p>自己的 Java 工具 server 是按来源分的，所以"有没有工具"要按这个会话的来源问。
      */
+    /**
+     * 放行名单 = MCP 工具（按来源）+ <b>授予了存在权的内置工具</b>。
+     *
+     * <p><b>两扇门必须一起开</b>：{@code --tools} 管"存不存在"、{@code --allowedTools} 管"放不放行"。
+     * 只开前者的话，headless（{@code -p}）下没有人能点「批准」，工具一用就被拒——实测踩过：
+     * 给了 WebSearch 却没放行，模型确实试了一次，结果里是
+     * {@code "Claude requested permissions to use WebSearch, but you haven't granted it yet."}，
+     * 然后它就放弃了（表现为"她好像不会查"）。
+     *
+     * <p>所以这里**从 {@code builtinTools} 反推**，不再手写第二份名单：授予存在权的工具自动获得放行，
+     * 两处不会走散。
+     */
+    private List<String> allowedToolRules(SessionSource source) {
+        List<String> rules = new ArrayList<>(mcpAllowRules(source));
+        String builtin = properties.getBuiltinTools();
+        if (builtin != null && !builtin.isBlank()) {
+            for (String tool : builtin.trim().split("\s+")) {
+                if (!tool.isBlank() && !rules.contains(tool)) {
+                    rules.add(tool);
+                }
+            }
+        }
+        return rules;
+    }
+
     private List<String> mcpAllowRules(SessionSource source) {
         List<String> rules = new ArrayList<>();
         if (javaToolMcpServer.exposedToolCount(source) > 0) {
