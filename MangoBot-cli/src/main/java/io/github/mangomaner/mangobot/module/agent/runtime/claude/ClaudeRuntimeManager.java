@@ -68,9 +68,18 @@ public class ClaudeRuntimeManager {
     private final JavaToolMcpServer javaToolMcpServer;
     private final SystemPromptComposer systemPromptComposer;
 
-    // 本类建过的会话键 → 来源。键怎么拼只有 SessionKeys 知道，业务要"按来源找会话"就该查这张表，
-    // 而不是去切那个字符串（切法一变就静默失配）
-    private final Map<String, SessionSource> sources = new ConcurrentHashMap<>();
+    // 本类建过的会话键 → 它是谁的会话。键怎么拼只有 SessionKeys 知道，业务要"按来源 / 按 bot 找会话"
+    // 就该查这张表，而不是去切那个字符串（切法一变就静默失配）
+    private final Map<String, SessionInfo> sessions = new ConcurrentHashMap<>();
+
+    /**
+     * 一个在跑的会话的归属，给"这次变更该通知哪些会话"用。
+     *
+     * @param source 来源
+     * @param botId  收到消息的 bot；web 是常量 {@code web}
+     */
+    public record SessionInfo(SessionSource source, String botId) {
+    }
 
     /** 拉起运行时底座，讲清端点状态，按需探针。由 {@code MangoBotApplication.main()} 显式调用。 */
     public void init() {
@@ -104,7 +113,7 @@ public class ClaudeRuntimeManager {
             throw new IllegalStateException("Claude 运行时未就绪：" + notReadyReason());
         }
         String key = botId + ":" + sourceKey;
-        sources.put(key, source);
+        sessions.put(key, new SessionInfo(source, botId));
         return runtime.getOrCreate(key, CHAT_POOL, () -> specForChat(key, botId, source));
     }
 
@@ -293,16 +302,16 @@ public class ClaudeRuntimeManager {
         return runtime.transcript();
     }
 
-    /** 在跑的会话键 → 它属于哪个来源。给"按来源发控制指令"这类用途。 */
-    public Map<String, SessionSource> runningSources() {
+    /** 在跑的会话键 → 它的归属（来源 + bot）。给"按作用域发控制指令"这类用途。 */
+    public Map<String, SessionInfo> runningSessions() {
         Map<String, Boolean> live = runtime.sessionStatus();
         // 顺手清掉已被回收的，免得这张表随着历史会话无限长
-        sources.keySet().retainAll(live.keySet());
-        Map<String, SessionSource> out = new LinkedHashMap<>();
+        sessions.keySet().retainAll(live.keySet());
+        Map<String, SessionInfo> out = new LinkedHashMap<>();
         for (String key : live.keySet()) {
-            SessionSource source = sources.get(key);
-            if (source != null) {
-                out.put(key, source);
+            SessionInfo info = sessions.get(key);
+            if (info != null) {
+                out.put(key, info);
             }
         }
         return out;

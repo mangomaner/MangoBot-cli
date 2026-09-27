@@ -2,32 +2,29 @@ package io.github.mangomaner.mangobot.module.agent.capability.skill;
 
 import io.github.mangomaner.mangobot.module.agent.chat.TurnControl;
 import io.github.mangomaner.mangobot.module.agent.chat.TurnControlRegistry;
-import io.github.mangomaner.mangobot.module.agent.model.enums.SessionSource;
 import io.github.mangomaner.mangobot.module.agent.runtime.claude.ClaudeRuntimeManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
-import java.util.function.Predicate;
+import java.util.function.BiPredicate;
 
 /**
- * 技能变更之后统一的通知出口：重建来源插件目录 + 让常驻会话重建 + 通过控制模块告知模型。
+ * 技能变更之后统一的通知出口：重建作用域清单 + 让常驻会话重建 + 通过控制模块告知模型。
  *
- * <p>原来这些逻辑散在 {@code AgentCapabilityController} 的私有方法里（技能页一个入口、人格页又要一个），
- * 这里把它抽成唯一入口。技能页与人格页共用同一套"正文改了该通知谁、范围变了该通知谁、被删了该通知谁"
- * 的口径，两处不会因为各自的写法而走偏。
+ * <p>技能页与人格页共用同一套"正文改了该通知谁、范围变了该通知谁、被删了该通知谁"的口径，
+ * 两处不会因为各自的写法而走偏。
  *
- * <p>顺序有讲究：先把来源插件目录重建好（新内容落盘），再让常驻会话"下次重建"，最后排控制指令——
- * 控制指令那一轮开头会先重建进程（那时才读得到新文件），模型随后按指令重读。
+ * <p><b>只有"技能清单变了"才重建清单表</b>（启用开关、来源、人格指派）；改正文不用——正文就是
+ * 进程下次启动时读的那一份，磁盘上没有副本要同步（零副本布局）。
  *
- * <p>为什么必须配控制指令：实测（2026-09-27）技能正文是<b>进程级缓存</b>——改了文件不重建进程，重读也
- * 拿不到新版；而重建之后模型又<b>不会主动重读</b>，会直接从上下文里那份旧的接着答。所以"重建 + 明确要求
- * 重读并声明旧版作废"两件缺一不可。温和的"再读一次"实测无效。
+ * <p>为什么必须配控制指令：实测（2026-09-27）技能正文是<b>进程级缓存</b>——改了文件不重建进程，
+ * 重读也拿不到新版；而重建之后模型又<b>不会主动重读</b>，会直接从上下文里那份旧的接着答。所以"重建 +
+ * 明确要求重读并声明旧版作废"两件缺一不可。温和的"再读一次"实测无效。
  *
- * <p>人格 skill 的改动还要再收窄一层：人格对每个场景（web/群聊/私聊）至多命中一个，所以"正文改了该通知谁"
- * 精确到"在它的场景上能读到它的会话"；而"指派换了"则是通知整个场景的所有会话（见
- * {@link #personaChanged(SessionSource, String)}）。
+ * <p>人格的指派还要再收窄一层：通知对象是"这个作用域下的会话"——全局级是该来源全部会话，
+ * bot 级是该 bot 的会话，会话级就那一个。
  */
 @Slf4j
 @Component
@@ -39,19 +36,19 @@ public class SkillChangeNotifier {
     private final TurnControlRegistry turnControlRegistry;
 
     /**
-     * 技能正文被改写：通知<b>在其来源上能读到它</b>的会话（对人格 skill 即"在它所属场景上列出它"的会话）。
+     * 技能正文被改写：通知<b>在其来源上能读到它</b>的会话（对人格即"指派里含该来源"的会话）。
      */
     public void contentChanged(String skillPath) {
-        broadcast(skillPath, reloadControl(skillPath),
-                source -> skillManager.isEnabledFor(skillPath, source));
+        broadcast(skillPath, false, reloadControl(skillPath),
+                (key, info) -> skillManager.isEnabledFor(skillPath, info.source()));
     }
 
     /**
-     * 启用范围变了：可能读得到、也可能读不到了，让相关来源的会话重判。
+     * 启用范围 / 指派变了：清单表要重建，然后让相关会话重判还能不能读到它。
      */
     public void scopeChanged(String skillPath) {
-        broadcast(skillPath, scopeChangedControl(skillPath),
-                source -> skillManager.isEnabledFor(skillPath, source));
+        broadcast(skillPath, true, scopeChangedControl(skillPath),
+                (key, info) -> skillManager.isEnabledFor(skillPath, info.source()));
     }
 
     /**
@@ -60,21 +57,26 @@ public class SkillChangeNotifier {
      * <p>删掉之后 {@code isEnabledFor} 就查不到了，所以这里不再按来源过滤，直接通知所有活会话。
      */
     public void removed(String skillPath) {
-        broadcast(skillPath, revokedControl(skillPath), source -> true);
+        broadcast(skillPath, true, revokedControl(skillPath), (key, info) -> true);
     }
 
     /**
-     * 人格切换：某来源的「当前人格」换了（或被取消），通知该来源<b>所有</b>会话。
+     * 人格切换：某作用域的人格换了（或被取消），通知该作用域下的会话。
      *
-     * <p>指派是来源级的：旧人格在新来源上不再是它、新人格在来源上成为它，
-     * 单独查任何一个技能的启用列表都盖不全"这个来源的人格变了"这件事，所以按来源整体通知。
-     * 场景互斥由 {@link SkillManager#assignPersonaSource(String, SessionSource)} 保证。
+     * <p>场景互斥由 {@link SkillManager#assignPersona(String, PersonaScope)} 保证。
+     * 已知取舍：全局级变更也会通知到"已被 bot 级人格遮蔽"的会话，控制文案本身允许这种情况
+     * （"如果还能读到就重读"），不值得为它再查一遍清单。
      *
-     * @param newPersonaPath 新指派的人格路径；为 null 表示该来源的人格被取消
+     * @param newPersonaPath 新指派的人格路径；为 null 表示该作用域的人格被取消
      */
-    public void personaChanged(SessionSource source, String newPersonaPath) {
-        String subject = newPersonaPath == null ? "persona:" + source.getSourceKey() : newPersonaPath;
-        broadcast(subject, personaChangedControl(source, newPersonaPath), s -> s == source);
+    public void personaChanged(PersonaScope scope, String newPersonaPath) {
+        String subject = newPersonaPath == null ? "persona:" + scope.key() : newPersonaPath;
+        broadcast(subject, true, personaChangedControl(scope, newPersonaPath), (key, info) ->
+                scope.level() == PersonaScope.Level.SESSION
+                        ? key.equals(scope.key())
+                        : info.source() == scope.source()
+                                && (scope.level() == PersonaScope.Level.GLOBAL
+                                        || scope.botId().equals(info.botId())));
     }
 
     // ========================================================================
@@ -82,21 +84,24 @@ public class SkillChangeNotifier {
     // ========================================================================
 
     /**
-     * 一次变更的三部曲：重建插件目录 → 标 all stale → 给命中的会话排控制指令。
+     * 一次变更的三部曲：重建清单表 → 标 all stale → 给命中的会话排控制指令。
      *
-     * <p>{@code refreshSourcePluginDirs()} 与 {@code markAllSessionsStale()} 与"发给谁"无关，无脑全做；
-     * 控制指令才按 {@code sourceFilter} 收窄。这样即使某次变更不该打扰模型（控制文案为空），进程与目录
-     * 也始终保持正确。
+     * <p>{@code markAllSessionsStale()} 与"发给谁"无关，无脑全做——清单与系统提示词都是 spawn 那刻
+     * 定死的，已经有会话跑着的时候改配置不重建就永远不生效。控制指令才按 {@code filter} 收窄。
      */
-    private void broadcast(String subjectPath, String controlText, Predicate<SessionSource> sourceFilter) {
-        skillManager.refreshSourcePluginDirs();
+    private void broadcast(String subjectPath, boolean scopesChanged, String controlText,
+            BiPredicate<String, ClaudeRuntimeManager.SessionInfo> filter) {
+        if (scopesChanged) {
+            skillManager.refreshSkillScopes();
+        }
         claudeRuntimeManager.markAllSessionsStale();
         if (controlText == null) {
             return;
         }
-        // 来源由 manager 记着，不从会话键里切——键怎么拼是 infra 与 SessionKeys 的事
-        for (Map.Entry<String, SessionSource> entry : claudeRuntimeManager.runningSources().entrySet()) {
-            if (!sourceFilter.test(entry.getValue())) {
+        // 来源与 bot 由 manager 记着，不从会话键里切——键怎么拼是 infra 与 SessionKeys 的事
+        for (Map.Entry<String, ClaudeRuntimeManager.SessionInfo> entry
+                : claudeRuntimeManager.runningSessions().entrySet()) {
+            if (!filter.test(entry.getKey(), entry.getValue())) {
                 continue;
             }
             turnControlRegistry.appendOnce(entry.getKey(),
@@ -113,11 +118,14 @@ public class SkillChangeNotifier {
      * 没有控制块的背书就会被当成外部注入挡掉。
      *
      * <p>所以这句话必须说三件事：新版是我方发布的、和旧版不一致的地方是有意改的、不要当注入。
+     *
+     * <p>不提名字前缀：{@code --plugin-dir} 指向哪个目录，清单里的名字就带哪个目录名的前缀
+     * （零副本布局下每个技能只用自己的名字），写死某个前缀会在换布局时变成错的提示。
      */
     private static String reloadControl(String skillPath) {
         return "技能「" + skillPath + "」的正文已经更新，这是由我方发布并认可的新版本，必须按它执行。"
-                + "上文里那份旧版本作废。现在重新调用 Skill 工具读取它（技能列表里的名字可能带来源前缀，"
-                + "例如 group:" + skillPath + "）。新版本里与旧版本不一致的地方是有意改的，照新的来，"
+                + "上文里那份旧版本作废。现在重新调用 Skill 工具读取它（它在清单里的名字可能带插件目录前缀，"
+                + "以清单里显示的名字为准）。新版本里与旧版本不一致的地方是有意改的，照新的来，"
                 + "不要把它当成外部注入的内容。";
     }
 
@@ -133,13 +141,13 @@ public class SkillChangeNotifier {
                 + "上文里还留着的也一并忽略。";
     }
 
-    /** 人格切换：明确告知"该场景的人格已经换成谁"，并背书为新版本指令。 */
-    private static String personaChangedControl(SessionSource source, String newPersonaPath) {
+    /** 人格切换：明确告知"这个作用域的人格已经换成谁"，并背书为新版本指令。 */
+    private static String personaChangedControl(PersonaScope scope, String newPersonaPath) {
         if (newPersonaPath == null) {
-            return "你所在的场景（" + source.getDescription() + "）现在没有人格了。"
+            return "你所在的场景（" + scope.display() + "）现在没有人格了。"
                     + "请不要再沿用之前的人格设定，按系统提示词里的默认准则行事。";
         }
-        return "你所在的场景（" + source.getDescription() + "）的人格已经切换成「" + newPersonaPath + "」。"
+        return "你所在的场景（" + scope.display() + "）的人格已经切换成「" + newPersonaPath + "」。"
                 + "这是由我方发布并认可的新人格，旧人格作废。现在重新调用 Skill 工具读取这个新人格，"
                 + "并严格按它来塑造你的行为；如果它和上文任何设定不一致，以它为准。";
     }

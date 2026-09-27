@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.mangomaner.mangobot.module.agent.capability.skill.SkillLibrary;
 import io.github.mangomaner.mangobot.module.agent.model.domain.AgentSkillConfig;
 import io.github.mangomaner.mangobot.module.agent.model.enums.SessionSource;
 import io.github.mangomaner.mangobot.module.agent.service.AgentSkillConfigService;
@@ -34,14 +35,19 @@ public class AgentSkillConfigServiceImpl extends ServiceImpl<AgentSkillConfigMap
 
     @Override
     public List<AgentSkillConfig> listSkills() {
-        return list(new LambdaQueryWrapper<AgentSkillConfig>()
-                .ne(AgentSkillConfig::getIsPersona, true));
+        return listByKind(SkillLibrary.Kind.SKILL);
     }
 
     @Override
     public List<AgentSkillConfig> listPersonas() {
-        return list(new LambdaQueryWrapper<AgentSkillConfig>()
-                .eq(AgentSkillConfig::getIsPersona, true));
+        return listByKind(SkillLibrary.Kind.PERSONA);
+    }
+
+    /** 类型由 skill_path 的前缀决定，所以在 Java 侧筛；表里就几行，不值得为它写 SQL 转义。 */
+    private List<AgentSkillConfig> listByKind(SkillLibrary.Kind kind) {
+        return list().stream()
+                .filter(config -> SkillLibrary.kindOf(config.getSkillPath()) == kind)
+                .toList();
     }
 
     @Override

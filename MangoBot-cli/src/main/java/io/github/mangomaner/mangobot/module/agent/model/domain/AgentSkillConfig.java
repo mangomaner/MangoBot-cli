@@ -52,13 +52,11 @@ public class AgentSkillConfig implements Serializable {
     private Boolean enabled;
 
     /**
-     * 是否是人格 skill（由导入界面决定）
-     */
-    @TableField(value = "is_persona")
-    private Boolean isPersona;
-
-    /**
-     * 启用列表（当前启用的来源）
+     * 启用列表。
+     *
+     * <p>两套键、同一个字段：普通技能存来源键（{@code web}/{@code group}/{@code private}），
+     * 人格存作用域键（{@code group} / {@code 1389:group} / {@code 1389:group:67890}，
+     * 见 {@code PersonaScope}）。类型由 {@code skill_path} 的前缀决定，不靠标记位。
      */
     @TableField(value = "enabled_list")
     private String enabledList;

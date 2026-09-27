@@ -409,19 +409,16 @@ CREATE TABLE agent_skill_config (
     skill_name VARCHAR(100) NOT NULL,
     description TEXT,
 
-    -- 文件路径（相对于 skills 目录）
-    skill_path VARCHAR(500) NOT NULL UNIQUE,    -- 如: "weather_analysis"
+    -- 技能库内路径，也是交给 claude 的 --plugin-dir 值；前缀即类型
+    skill_path VARCHAR(500) NOT NULL UNIQUE,    -- 如: "all-skills/weather_analysis" / "all-personas/catgirl"
 
     -- 绑定的工具 id 列表
     bound_tool_ids TEXT,                        -- JSON 数组: [1, 2, 3]
 
-    -- 是否是人格 skill（由导入界面决定，见 SkillSchema 兜底补列）
-    is_persona BOOLEAN DEFAULT 0,
-
     -- 状态
     enabled BOOLEAN DEFAULT FALSE,
 
-    -- 启用列表（当前启用的来源）
+    -- 启用列表：普通技能存来源键，人格存作用域键（"group" / "1389:group" / "1389:group:67890"）
     enabled_list TEXT DEFAULT '["web","group","private"]',  -- JSON 数组: ["web", "group", "private"]
 
     -- 可启用列表（可以被启用的来源）

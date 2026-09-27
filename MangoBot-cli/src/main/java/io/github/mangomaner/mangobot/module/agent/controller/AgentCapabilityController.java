@@ -2,6 +2,7 @@ package io.github.mangomaner.mangobot.module.agent.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.mangomaner.mangobot.module.agent.capability.skill.SkillChangeNotifier;
+import io.github.mangomaner.mangobot.module.agent.capability.skill.SkillLibrary;
 import io.github.mangomaner.mangobot.module.agent.capability.skill.SkillManager;
 import io.github.mangomaner.mangobot.module.agent.capability.tool.JavaToolLoader;
 import io.github.mangomaner.mangobot.module.agent.capability.tool.JavaToolMcpServer;
@@ -278,12 +279,14 @@ public class AgentCapabilityController {
     @PostMapping("/skills")
     @Operation(summary = "创建 Skill")
     public BaseResponse<AgentSkillConfig> createSkill(@RequestBody CreateSkillRequest request) throws IOException {
-        String skillPath = StringUtils.hasText(request.getSkillPath())
-                ? request.getSkillPath().trim()
-                : SkillManager.sanitizePath(request.getSkillName());
-        if (!StringUtils.hasText(skillPath)) {
+        // 名字统一规整（顺便挡掉斜杠），再拼进技能库——库内路径不让外部直接给
+        String name = SkillManager.sanitizePath(StringUtils.hasText(request.getSkillPath())
+                ? request.getSkillPath()
+                : request.getSkillName());
+        if (!StringUtils.hasText(name)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "技能名称不能为空");
         }
+        String skillPath = SkillLibrary.pathOf(SkillLibrary.Kind.SKILL, name);
         skillManager.createSkillDirectory(skillPath);
         
         String content = buildSkillContent(request);
@@ -329,10 +332,8 @@ public class AgentCapabilityController {
     @PutMapping("/skills/{id}/toggle")
     @Operation(summary = "启用/禁用 Skill")
     public BaseResponse<Boolean> toggleSkill(@PathVariable Integer id) {
-        AgentSkillConfig config = skillConfigService.getById(id);
-        if (config == null) {
-            return new BaseResponse<>(ErrorCode.NOT_FOUND_ERROR);
-        }
+        AgentSkillConfig config = requireSkill(id);
+        rejectPersona(config);
         boolean newEnabled = !Boolean.TRUE.equals(config.getEnabled());
         config.setEnabled(newEnabled);
         skillConfigService.updateById(config);
@@ -346,15 +347,26 @@ public class AgentCapabilityController {
             @PathVariable Integer id,
             @RequestBody UpdateEnabledListRequest request) {
         try {
-            String skillPath = skillConfigService.getById(id).getSkillPath();
+            AgentSkillConfig config = requireSkill(id);
+            rejectPersona(config);
             skillConfigService.updateEnabledList(id, request.getEnabledList());
-            skillChangeNotifier.scopeChanged(skillPath);
+            skillChangeNotifier.scopeChanged(config.getSkillPath());
             return new BaseResponse<>(0, true, "");
         } catch (IllegalArgumentException e) {
             return new BaseResponse<>(ErrorCode.PARAMS_ERROR.getCode(), false, e.getMessage());
         } catch (Exception e) {
             log.error("Failed to update enabled list for skill: {}", id, e);
             return new BaseResponse<>(ErrorCode.OPERATION_ERROR.getCode(), false, e.getMessage());
+        }
+    }
+
+    /**
+     * 人格不走技能页的开关与来源设置：它的"启用范围"是<b>作用域指派</b>，键与来源键不是一套，
+     * 用这两个端点点一下就会把指派抹掉（列表被写成空或来源键）。人格页也不用它们。
+     */
+    private static void rejectPersona(AgentSkillConfig config) {
+        if (SkillLibrary.kindOf(config.getSkillPath()) == SkillLibrary.Kind.PERSONA) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "这是人格，启用范围请到「人格」页按作用域指派");
         }
     }
 
@@ -387,12 +399,11 @@ public class AgentCapabilityController {
     @PostMapping("/skills/import-zip")
     @Operation(summary = "导入 Skill（ZIP）", description = "上传包含 SKILL.md 的 ZIP，可附带 references/examples/scripts 资源")
     public BaseResponse<AgentSkillConfig> importSkillZip(
-            @RequestParam("file") MultipartFile file,
-            @RequestParam(value = "isPersona", defaultValue = "false") boolean isPersona) throws IOException {
+            @RequestParam("file") MultipartFile file) throws IOException {
         if (file == null || file.isEmpty()) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "请上传 ZIP 文件");
         }
-        AgentSkillConfig config = skillManager.importFromZip(file.getInputStream(), isPersona);
+        AgentSkillConfig config = skillManager.importFromZip(file.getInputStream(), SkillLibrary.Kind.SKILL);
         skillChangeNotifier.contentChanged(config.getSkillPath());
         return new BaseResponse<>(0, config, "");
     }
@@ -400,10 +411,9 @@ public class AgentCapabilityController {
     @PostMapping("/skills/import-markdown")
     @Operation(summary = "导入 Skill（单文件 SKILL.md）", description = "直接粘贴 SKILL.md 内容创建技能")
     public BaseResponse<AgentSkillConfig> importSkillMarkdown(
-            @RequestParam(value = "isPersona", defaultValue = "false") boolean isPersona,
             @RequestBody @Valid ImportSkillRequest request) throws IOException {
         AgentSkillConfig config = skillManager.importFromMarkdown(
-                request.getSkillName(), request.getDescription(), request.getContent(), isPersona);
+                request.getSkillName(), request.getDescription(), request.getContent(), SkillLibrary.Kind.SKILL);
         skillChangeNotifier.contentChanged(config.getSkillPath());
         return new BaseResponse<>(0, config, "");
     }

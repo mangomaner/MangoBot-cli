@@ -24,37 +24,31 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.*;
+import java.util.stream.Collectors;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
-import java.util.stream.Collectors;
 
 /**
- * Skill 管理器
- * 
- * <p>负责管理 Skill 的生命周期：
- * <ul>
- *   <li>{@link #init()} - 启动时扫描并同步 Skill 目录</li>
- *   <li>{@link #createSkillDirectory(String)} - 创建 Skill 目录</li>
- *   <li>{@link #writeSkillContent(String, String)} - 写入 Skill 内容</li>
- *   <li>{@link #deleteSkillDirectory(String)} - 删除 Skill 目录</li>
- * </ul>
+ * Skill 管理器：技能库的读写 + 「作用域 → 技能清单」这张表。
  *
- * <h3>Skill 目录结构</h3>
- * <p>目录本身就是交给 claude 的插件目录（{@code --plugin-dir}），技能必须落在它下面的
- * {@code skills/} 子目录里才会被识别——实测直接把技能目录挂在插件目录根下，claude 一个技能都发现不了。
+ * <h3>两个库，类型由目录决定</h3>
  * <pre>
- * data/capabilities/skills/          # 插件目录（--plugin-dir 指向这里）
- * └── skills/
- *     └── my-skill/
- *         ├── SKILL.md           # Skill 主文件（必须）
- *         ├── references/        # 参考文档（可选）
- *         │   └── doc.md
- *         ├── examples/          # 示例文件（可选）
- *         │   └── example.md
- *         └── scripts/           # 脚本文件（可选）
- *             └── helper.sh
+ * data/capabilities/
+ * ├── all-skills/&lt;名&gt;/skills/&lt;名&gt;/SKILL.md      # 普通技能（按来源启用）
+ * └── all-personas/&lt;名&gt;/skills/&lt;名&gt;/SKILL.md    # 人格（按作用域指派）
  * </pre>
+ * 路径拼接全在 {@link SkillLibrary}。这里不再有 {@code is_persona} 标记位，也不再按作用域复制目录
+ * ——{@code --plugin-dir} 可以重复传，所以"这个会话能看到哪些技能"是 {@link ClaudeSkillRegistry}
+ * 里的一张表，不是磁盘上的一份副本。
+ *
+ * <h3>清单怎么算</h3>
+ * <ul>
+ *   <li>普通技能：只看来源（{@code enabled} + {@code enabled_list} 含该来源）。</li>
+ *   <li>人格：指派到哪个作用域（全局 / bot / 会话）就进哪一份清单，每个作用域至多一个。</li>
+ *   <li>每份清单 = 该来源的全部普通技能 + 该作用域生效的那个人格。回退是"取第一个有表项的"而非合并，
+ *       所以<b>清单必须自包含</b>；同理，只在该级真有人格时才建 bot / 会话级表项，否则会遮蔽掉全局人格。</li>
+ * </ul>
  *
  * <h3>SKILL.md 格式</h3>
  * <pre>
@@ -62,242 +56,300 @@ import java.util.stream.Collectors;
  * name: My Skill
  * description: A sample skill
  * bound_tool_ids: [1, 2, 3]
+ * layer: system          # 非空表示随项目内置，新建时默认启用
  * ---
- * 
- * Skill content here...
  * </pre>
- * 
- * @see AgentSkillConfig
  */
 @Service
 @Slf4j
 @RequiredArgsConstructor
 public class SkillManager {
 
-    /** 插件目录：claude 的 {@code --plugin-dir} 指向这里（主库，能力页用） */
-    private static final String PLUGIN_DIR = "data/capabilities/skills";
+    /** 旧布局（迁移用）：插件目录，其下 {@code skills/<名>/} 是技能库。 */
+    private static final String LEGACY_PLUGIN_DIR = "data/capabilities/skills";
 
-    /** 技能内容目录：插件目录下的 skills/ 子目录，每个技能一格 */
-    private static final String SKILLS_DIR = PLUGIN_DIR + "/skills";
-
-    /** 按来源生成的插件目录根：{@code data/capabilities/plugins/<sourceKey>/} */
-    private static final String SOURCE_PLUGIN_ROOT = "data/capabilities/plugins";
+    /** 旧布局（迁移用）：按来源复制的副本树。 */
+    private static final String LEGACY_SOURCE_PLUGIN_ROOT = "data/capabilities/plugins";
 
     private final AgentSkillConfigService skillConfigService;
     private final ClaudeSkillRegistry skillRegistry;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    /**
-     * 获取插件目录路径（claude {@code --plugin-dir} 的值）
-     *
-     * @return 插件目录路径
-     */
-    public Path getPluginDirectory() {
-        return FileUtils.resolvePath(PLUGIN_DIR);
-    }
+    // ========================================================================
+    // 启动：迁移 + 扫描 + 建表
+    // ========================================================================
 
     /**
-     * 获取指定来源的插件目录——由 {@link #refreshSourcePluginDirs()} 按技能启用来源生成。
-     *
-     * <p>之所以按来源分目录而不是共用一个：claude 的 {@code --plugin-dir} 是整目录下发，
-     * 一个目录里的技能会对所有会话可见，做不到"同一份技能库、群聊看得到的和 web 看得到的不一样"。
-     *
-     * @param source 会话来源
-     * @return 该来源的插件目录路径（可能尚未生成，内容为空）
-     */
-    public Path getPluginDirectory(SessionSource source) {
-        return FileUtils.resolvePath(SOURCE_PLUGIN_ROOT).resolve(source.getSourceKey());
-    }
-
-    /**
-     * 获取 Skill 存储目录路径
-     *
-     * @return Skill 目录路径
-     */
-    public Path getSkillsDirectory() {
-        return FileUtils.resolvePath(SKILLS_DIR);
-    }
-
-    /**
-     * 初始化 Skill 同步
-     * 
-     * <p>扫描 Skill 目录，将文件系统中的 Skill 同步到数据库：
-     * <ul>
-     *   <li>新增的 Skill：写入数据库，默认禁用</li>
-     *   <li>已存在的 Skill：更新元数据，保留启用状态</li>
-     *   <li>数据库中存在但文件不存在的 Skill：保留配置（标记为不可用）</li>
-     * </ul>
+     * 初始化：先搬家（一次性），再扫描两个库同步元数据，最后重建作用域清单。
+     * 由 {@code MangoBotApplication.main()} 显式调用。
      */
     public void init() {
-        FileUtils.createDirectory(getPluginDirectory());
-        Path skillsDir = getSkillsDirectory();
-        FileUtils.createDirectory(skillsDir);
+        migrateLegacyLayout();
+        for (String root : SkillLibrary.roots()) {
+            Path rootPath = FileUtils.resolvePath(root);
+            FileUtils.createDirectory(rootPath);
+            scanRoot(root, rootPath);
+        }
+        refreshSkillScopes();
+    }
 
-        try (DirectoryStream<Path> stream = Files.newDirectoryStream(skillsDir)) {
-            for (Path skillPath : stream) {
-                if (Files.isDirectory(skillPath)) {
-                    Path skillMdPath = skillPath.resolve("SKILL.md");
-                    if (Files.exists(skillMdPath)) {
-                        String skillPathName = skillPath.getFileName().toString();
-                        syncSkill(skillPathName, skillMdPath);
-                    }
+    /** 扫一个库：{@code <根>/<名>/skills/<名>/SKILL.md} 才是合法技能。 */
+    private void scanRoot(String root, Path rootPath) {
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(rootPath)) {
+            for (Path child : stream) {
+                if (!Files.isDirectory(child)) {
+                    continue;
+                }
+                String name = child.getFileName().toString();
+                Path skillMd = child.resolve(SkillLibrary.SKILLS_SUBDIR).resolve(name).resolve("SKILL.md");
+                if (Files.exists(skillMd)) {
+                    syncSkill(SkillLibrary.pathOf(SkillLibrary.kindOf(root + "/" + name), name), skillMd);
+                } else if (Files.exists(child.resolve("SKILL.md"))) {
+                    log.warn("技能目录形状不对，claude 发现不了它（缺 {}/{} 这一层）：{}",
+                            SkillLibrary.SKILLS_SUBDIR, name, child);
                 }
             }
         } catch (IOException e) {
-            log.error("Failed to scan skills directory", e);
+            log.error("扫描技能库失败：{}", rootPath, e);
         }
-
-        refreshSourcePluginDirs();
     }
 
     /**
-     * 按「技能启用来源」重建三个来源的插件目录（web / group / private）。
+     * 一次性搬家：旧的单库布局 → 双库布局，并清掉按来源复制的副本树。
      *
-     * <p>规则：主库里 {@code enabled == true} 且 {@code enabled_list} 含该来源的技能，整目录复制过去；
-     * 三个目标目录先清空再复制。技能目录很小（就是些 markdown），重建比做增量diff简单得多。
-     *
-     * <p>调用时机是显式的——{@link #init()} 一次，加上能力页每一个改变技能状态的端点结尾。
-     * 不做"惰性感知变更"：那要求在下发路径上比对 mtime，出错时很难查。
+     * <p>数据库侧的路径改写已经在 {@code SkillSchema} 做过（那边才读得到旧的 {@code is_persona}），
+     * 所以这里按<b>新路径</b>把目录搬到位。幂等：旧的技能库目录搬完就删了，第二次启动直接跳过。
      */
-    public void refreshSourcePluginDirs() {
-        List<AgentSkillConfig> enabledSkills = skillConfigService.listEnabled();
-        for (SessionSource source : SessionSource.values()) {
-            Path target = getPluginDirectory(source);
-            try {
-                if (Files.exists(target)) {
-                    deleteRecursively(target);
+    private void migrateLegacyLayout() {
+        Path legacyPluginDir = FileUtils.resolvePath(LEGACY_PLUGIN_DIR);
+        Path legacySkills = legacyPluginDir.resolve(SkillLibrary.SKILLS_SUBDIR);
+        try {
+            if (Files.isDirectory(legacySkills)) {
+                int moved = 0;
+                // 旧技能库里，凡是数据库里有行的都已经按新路径落地；记下来，免得被下面的孤儿分支
+                // 又当成"没主的目录"复制进技能库（人格的目标在人格库，用目标路径判断根本判不出来）
+                Set<String> known = new HashSet<>();
+                for (AgentSkillConfig config : skillConfigService.list()) {
+                    String name = SkillLibrary.nameOf(config.getSkillPath());
+                    known.add(name);
+                    Path source = legacySkills.resolve(name);
+                    if (!Files.isDirectory(source)) {
+                        continue;
+                    }
+                    Path target = SkillLibrary.contentDir(config.getSkillPath());
+                    if (Files.exists(target)) {
+                        continue;
+                    }
+                    copyRecursively(source, target);
+                    moved++;
                 }
-                Path skillsDir = target.resolve("skills");
-                FileUtils.createDirectory(skillsDir);
+                // 数据库里确实没有的目录：一律按普通技能收进技能库，不丢内容
+                try (DirectoryStream<Path> stream = Files.newDirectoryStream(legacySkills)) {
+                    for (Path child : stream) {
+                        String name = child.getFileName().toString();
+                        if (!Files.isDirectory(child) || known.contains(name)) {
+                            continue;
+                        }
+                        Path target = SkillLibrary.contentDirOf(SkillLibrary.Kind.SKILL, name);
+                        if (Files.exists(target)) {
+                            continue;
+                        }
+                        copyRecursively(child, target);
+                        moved++;
+                        log.warn("技能「{}」不在数据库里，已按普通技能收进技能库，请到技能页确认", name);
+                    }
+                }
+                log.info("旧技能库已搬到双库布局，共 {} 个技能；旧目录删除中", moved);
+            }
+        } catch (IOException e) {
+            log.error("技能库搬迁失败，本次不给技能建清单（避免下发到半搬完的目录）", e);
+            return;
+        }
+        deleteQuietly(legacyPluginDir);
+        deleteQuietly(FileUtils.resolvePath(LEGACY_SOURCE_PLUGIN_ROOT));
+    }
 
-                int copied = 0;
-                for (AgentSkillConfig skill : enabledSkills) {
-                    if (!supportsSource(skill, source)) {
+    // ========================================================================
+    // 作用域 → 技能清单
+    // ========================================================================
+
+    /**
+     * 重建整张作用域清单表并<b>原子发布</b>。
+     *
+     * <p>调用时机是显式的：启动一次，加上每一个改变"技能启用状态 / 人格指派"的端点。
+     * 改技能<b>正文</b>不用调——正文就是进程下次启动时读的那一份，没有副本要同步。
+     */
+    public void refreshSkillScopes() {
+        List<AgentSkillConfig> all = skillConfigService.list();
+        List<AgentSkillConfig> generals = all.stream()
+                .filter(config -> SkillLibrary.kindOf(config.getSkillPath()) == SkillLibrary.Kind.SKILL)
+                .filter(config -> Boolean.TRUE.equals(config.getEnabled()))
+                .toList();
+        List<AgentSkillConfig> personas = all.stream()
+                .filter(config -> SkillLibrary.kindOf(config.getSkillPath()) == SkillLibrary.Kind.PERSONA)
+                .filter(config -> Boolean.TRUE.equals(config.getEnabled()))
+                .toList();
+
+        Map<ClaudeSkillScope, List<Path>> table = new LinkedHashMap<>();
+        for (SessionSource source : SessionSource.values()) {
+            List<AgentSkillConfig> forSource = generals.stream()
+                    .filter(skill -> sourcesOf(skill).contains(source))
+                    .toList();
+            // 全局那一份恒有表项（可能只有普通技能、没有人格）
+            PersonaScope globalScope = PersonaScope.global(source);
+            table.put(globalScope.toSkillScope(), compose(forSource, personaAt(globalScope, personas)));
+            // bot / 会话：只在该级真有人格时才建表项。建了就会遮蔽全局人格，所以不能提前建。
+            for (AgentSkillConfig persona : personas) {
+                for (String key : parseKeys(persona.getEnabledList())) {
+                    PersonaScope scope = tryParseScope(key);
+                    if (scope == null || scope.source() != source || scope.level() == PersonaScope.Level.GLOBAL) {
                         continue;
                     }
-                    Path src = getSkillsDirectory().resolve(skill.getSkillPath());
-                    if (!Files.isDirectory(src)) {
-                        log.warn("技能「{}」已启用但目录不存在，跳过：{}", skill.getSkillPath(), src);
-                        continue;
-                    }
-                    copyRecursively(src, skillsDir.resolve(skill.getSkillPath()));
-                    copied++;
+                    table.put(scope.toSkillScope(), compose(forSource, persona));
                 }
-                log.info("来源插件目录已重建：source={} dir={} skills={}",
-                        source.getSourceKey(), target, copied);
-                // 登记到技能映射表；目录建好了才登记，免得会话拿到一个还不存在的路径
-                skillRegistry.put(
-                        new ClaudeSkillScope(ClaudeSkillScope.Level.GLOBAL, source.getSourceKey()),
-                        List.of(target));
-            } catch (IOException e) {
-                log.error("重建来源插件目录失败：source={} dir={}", source.getSourceKey(), target, e);
             }
         }
+        skillRegistry.replaceAll(table);
+        logScopeTable(table);
+    }
+
+    /** 一份清单 = 该来源的全部普通技能 + 该作用域生效的那个人格。 */
+    private List<Path> compose(List<AgentSkillConfig> generals, AgentSkillConfig persona) {
+        String personaName = persona == null ? null : SkillLibrary.nameOf(persona.getSkillPath());
+        List<Path> dirs = new ArrayList<>();
+        for (AgentSkillConfig general : generals) {
+            String name = SkillLibrary.nameOf(general.getSkillPath());
+            if (name.equals(personaName)) {
+                // 插件名取目录名，两者同名时模型侧的名字完全一样（都是 <名>:<名>），无法区分，
+                // 所以这份清单里只留人格。改名即可解决。
+                log.warn("技能「{}」与生效的人格同名，模型侧无法区分，本次只下发人格；请把其中一个改名",
+                        general.getSkillPath());
+                continue;
+            }
+            dirs.add(SkillLibrary.pluginRoot(general.getSkillPath()));
+        }
+        if (persona != null) {
+            dirs.add(SkillLibrary.pluginRoot(persona.getSkillPath()));
+        }
+        return dirs;
+    }
+
+    private AgentSkillConfig personaAt(PersonaScope scope, List<AgentSkillConfig> personas) {
+        for (AgentSkillConfig persona : personas) {
+            if (parseKeys(persona.getEnabledList()).contains(scope.key())) {
+                return persona;
+            }
+        }
+        return null;
+    }
+
+    private void logScopeTable(Map<ClaudeSkillScope, List<Path>> table) {
+        table.forEach((scope, dirs) -> log.info("技能清单：{} {} → {}",
+                scope.level(), scope.scopeId(),
+                dirs.isEmpty() ? "（空）" : dirs.stream().map(Path::getFileName).toList()));
     }
 
     /**
-     * 这个技能对该来源现在启用吗（总开关 + enabled_list）。
+     * 这个技能对该来源现在启用吗。
      *
-     * <p>给"技能变更之后该通知哪些会话"用：控制指令只该发给「来源上真有这个技能」的会话，
-     * 否则等于叫一个会话去读它根本没有的技能。实现直接复用下面那条判定，不另写一份口径。
+     * <p>给"技能变更之后该通知哪些会话"用。判定必须认<b>两种键</b>：普通技能存来源键 {@code group}，
+     * 人格存作用域键 {@code 1389:group} / {@code 1389:group:67890}——只比字符串相等的话，
+     * 人格的键一个都匹配不上，改人格正文时模型收不到重读指令。
      */
     public boolean isEnabledFor(String skillPath, SessionSource source) {
         AgentSkillConfig config = skillConfigService.getBySkillPath(skillPath);
-        return config != null && supportsSource(config, source);
-    }
-
-    /** 技能对该来源是否启用：总开关打开，且 enabled_list 里有这个来源。 */
-    private boolean supportsSource(AgentSkillConfig skill, SessionSource source) {
-        if (!Boolean.TRUE.equals(skill.getEnabled())) {
+        if (config == null || !Boolean.TRUE.equals(config.getEnabled())) {
             return false;
         }
-        return parseSourceKeys(skill.getEnabledList()).contains(source.getSourceKey());
+        for (String key : parseKeys(config.getEnabledList())) {
+            PersonaScope scope = tryParseScope(key);
+            if (scope != null && scope.source() == source) {
+                return true;
+            }
+        }
+        return false;
     }
 
-    /** 解析 enabled_list；空或坏 JSON 一律按「没有来源」处理，不让一条坏配置拖垮整次重建。 */
-    private List<String> parseSourceKeys(String json) {
-        if (json == null || json.isBlank()) {
-            return List.of();
+    /** 技能启用列表里的来源（普通技能的键就是来源键）。 */
+    private List<SessionSource> sourcesOf(AgentSkillConfig skill) {
+        List<SessionSource> sources = new ArrayList<>();
+        for (String key : parseKeys(skill.getEnabledList())) {
+            PersonaScope scope = tryParseScope(key);
+            if (scope != null && scope.level() == PersonaScope.Level.GLOBAL) {
+                sources.add(scope.source());
+            }
         }
-        try {
-            return objectMapper.readValue(json, new TypeReference<List<String>>() {
-            });
-        } catch (JsonProcessingException e) {
-            log.warn("技能来源列表不是合法 JSON，按「无来源」处理：{}", json);
-            return List.of();
+        return sources;
+    }
+
+    // ========================================================================
+    // 人格指派
+    // ========================================================================
+
+    /**
+     * 把人某作用域的「当前人格」设为指定技能：先把该作用域键从<b>所有</b>人格里摘掉，再挂到指定技能上。
+     * 于是任何作用域任一时刻至多命中一个人格。
+     *
+     * <p>只摘<b>同一个作用域键</b>，不是整行——给某个群换人格不该动到同一个人格在 bot 级或全局级的指派。
+     * 加锁是因为一次指派是"读全部人格行 → 逐行写"，得让"同级至多一个"这条不变式有个单点保证。
+     *
+     * @param personaPath 目标人格路径；传 null 表示取消该作用域的人格
+     */
+    public synchronized void assignPersona(String personaPath, PersonaScope scope) throws JsonProcessingException {
+        String key = scope.key();
+        for (AgentSkillConfig persona : skillConfigService.listPersonas()) {
+            List<String> keys = new ArrayList<>(parseKeys(persona.getEnabledList()));
+            boolean changed = keys.remove(key);
+            boolean isTarget = personaPath != null && personaPath.equals(persona.getSkillPath());
+            if (isTarget && !keys.contains(key)) {
+                keys.add(key);
+                changed = true;
+            } else if (!isTarget && !changed) {
+                continue; // 无关的行，不用写库
+            }
+            persona.setEnabledList(objectMapper.writeValueAsString(keys));
+            persona.setEnabled(!keys.isEmpty());
+            skillConfigService.updateById(persona);
         }
     }
 
-    /** 整目录复制（技能目录含 references/ examples/ scripts/ 等资源，必须一起带过去）。 */
-    private void copyRecursively(Path source, Path target) throws IOException {
-        if (Files.isDirectory(source)) {
-            FileUtils.createDirectory(target);
-            try (DirectoryStream<Path> stream = Files.newDirectoryStream(source)) {
-                for (Path child : stream) {
-                    copyRecursively(child, target.resolve(child.getFileName().toString()));
+    /** 某个作用域当前命中的那个「唯一人格」的 skill_path，没有则返回 null。 */
+    public String activePersonaPathFor(PersonaScope scope) {
+        String key = scope.key();
+        for (AgentSkillConfig persona : skillConfigService.listPersonas()) {
+            if (Boolean.TRUE.equals(persona.getEnabled())
+                    && parseKeys(persona.getEnabledList()).contains(key)) {
+                return persona.getSkillPath();
+            }
+        }
+        return null;
+    }
+
+    /** 全部指派，供人格页回填。 */
+    public List<PersonaAssignment> listPersonaAssignments() {
+        List<PersonaAssignment> assignments = new ArrayList<>();
+        for (AgentSkillConfig persona : skillConfigService.listPersonas()) {
+            for (String key : parseKeys(persona.getEnabledList())) {
+                PersonaScope scope = tryParseScope(key);
+                if (scope != null) {
+                    assignments.add(new PersonaAssignment(scope, persona.getSkillPath()));
                 }
             }
-            return;
         }
-        FileUtils.createParentDirectories(target);
-        Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
+        return assignments;
     }
 
-    /**
-     * 同步单个 Skill 到数据库
-     */
-    private void syncSkill(String skillPathName, Path skillMdPath) {
-        try {
-            String content = Files.readString(skillMdPath);
-            SkillMetadata metadata = parseSkillMetadata(content);
-            
-            AgentSkillConfig config = skillConfigService.getBySkillPath(skillPathName);
-            if (config == null) {
-                config = newConfig(skillPathName, metadata);
-            }
-
-            config.setSkillName(metadata.name);
-            config.setDescription(metadata.description);
-            if (metadata.boundToolIds != null && !metadata.boundToolIds.isEmpty()) {
-                config.setBoundToolIds(objectMapper.writeValueAsString(metadata.boundToolIds));
-            }
-
-            skillConfigService.saveOrUpdate(config);
-            log.info("Skill synced: {}", skillPathName);
-
-        } catch (IOException e) {
-            log.error("Failed to read skill file: {}", skillMdPath, e);
-        }
-    }
+    // ========================================================================
+    // 导入 / 导出 / 同步
+    // ========================================================================
 
     /**
-     * 新建一条技能配置：默认支持所有来源，**声明了 {@code layer} 的内置技能默认启用**。
+     * 导入 ZIP 格式的技能（zip 内需包含 SKILL.md，可附带 references/examples/scripts 资源）。
      *
-     * <p>为什么系统层技能要默认开：persona 是 bot 行为的地基，新装环境里它要是关着的，bot 就没有人格
-     * 也没有参与纪律（技能页上看起来一切正常）。这与 {@code registerBuiltinTool} 对新增内置工具的处理
-     * 一致——只有新建这一次置 true；行一旦存在，用户在技能页的开关就说了算，同步不再碰它。
+     * @param kind 落哪个库：技能页导入的是 {@code SKILL}，人格页是 {@code PERSONA}
+     * @return 导入后的技能配置（默认禁用，需手动启用/指派）
      */
-    private AgentSkillConfig newConfig(String skillPathName, SkillMetadata metadata) {
-        AgentSkillConfig config = new AgentSkillConfig();
-        config.setSkillPath(skillPathName);
-        config.setEnabled(metadata.layer != null && !metadata.layer.isBlank());
-        config.setIsPersona(false);
-        String allSourcesJson = buildAllSourcesJson();
-        config.setEnabledList(allSourcesJson);
-        config.setAvailableList(allSourcesJson);
-        return config;
-    }
-
-    /**
-     * 导入 ZIP 格式的 Skill（zip 内需包含 SKILL.md，可附带 references/examples/scripts 资源）
-     *
-     * @param zipStream ZIP 输入流
-     * @return 导入后的 Skill 配置（默认禁用，需手动启用）
-     */
-    public AgentSkillConfig importFromZip(InputStream zipStream, boolean isPersona) throws IOException {
-        Path skillsRoot = getSkillsDirectory();
-        FileUtils.createDirectory(skillsRoot);
-
+    public AgentSkillConfig importFromZip(InputStream zipStream, SkillLibrary.Kind kind) throws IOException {
         Map<String, byte[]> entries = new LinkedHashMap<>();
         long totalSize = 0;
         int entryCount = 0;
@@ -339,53 +391,46 @@ public class SkillManager {
         String parent = skillMdEntry.contains("/")
                 ? skillMdEntry.substring(0, skillMdEntry.lastIndexOf('/'))
                 : "";
-        String skillPath = parent;
-
-        if (skillPath == null || skillPath.isEmpty()) {
+        String skillName = parent;
+        if (skillName.isEmpty()) {
             // SKILL.md 在 zip 根目录：从前置元数据解析名称作为路径
             String mdContent = new String(entries.get(skillMdEntry), StandardCharsets.UTF_8);
-            SkillMetadata metadata = parseSkillMetadata(mdContent);
-            skillPath = sanitizePath(metadata.name);
-            if (skillPath == null || skillPath.isEmpty()) {
-                throw new IOException("SKILL.md 缺少 name 元数据，无法确定技能路径");
-            }
+            skillName = sanitizePath(parseSkillMetadata(mdContent).name);
+        }
+        if (skillName == null || skillName.isEmpty()) {
+            throw new IOException("SKILL.md 缺少 name 元数据，无法确定技能名");
         }
 
-        Path skillDir = skillsRoot.resolve(skillPath);
+        String skillPath = SkillLibrary.pathOf(kind, skillName);
+        Path contentDir = SkillLibrary.contentDir(skillPath);
         for (Map.Entry<String, byte[]> fileEntry : entries.entrySet()) {
             String relative = fileEntry.getKey();
-            if (skillMdEntry.contains("/") && relative.startsWith(parent + "/")) {
+            if (!parent.isEmpty() && relative.startsWith(parent + "/")) {
                 relative = relative.substring(parent.length() + 1);
             }
             if (relative.isEmpty()) {
                 continue;
             }
-            Path target = skillDir.resolve(relative).normalize();
-            if (!target.startsWith(skillDir)) {
-                throw new IOException("ZIP 中包含越界路径: " + fileEntry.getKey());
-            }
+            Path target = FileUtils.resolvePath(contentDir, relative);
             FileUtils.createParentDirectories(target);
             Files.write(target, fileEntry.getValue());
         }
 
         log.info("Skill imported from zip: {}", skillPath);
-        return markPersona(syncSkillByPath(skillPath), isPersona);
+        return syncSkillByPath(skillPath);
     }
 
     /**
-     * 导入单文件 Skill（SKILL.md 内容）
+     * 导入单文件 Skill（SKILL.md 内容）。
      *
-     * @param skillName   技能名称
-     * @param description 技能描述（content 自带 frontmatter 时忽略）
-     * @param content     SKILL.md 内容
-     * @return 导入后的 Skill 配置（默认禁用）
+     * @param kind 落哪个库；技能页是 {@code SKILL}，人格页是 {@code PERSONA}
      */
-    public AgentSkillConfig importFromMarkdown(String skillName, String description, String content, boolean isPersona) throws IOException {
-        String skillPath = sanitizePath(skillName);
-        if (skillPath == null || skillPath.isEmpty()) {
+    public AgentSkillConfig importFromMarkdown(String skillName, String description, String content,
+            SkillLibrary.Kind kind) throws IOException {
+        String name = sanitizePath(skillName);
+        if (name == null || name.isEmpty()) {
             throw new IOException("技能名称不能为空或非法");
         }
-
         String fullContent = content;
         if (!content.trim().startsWith("---")) {
             fullContent = "---\n"
@@ -395,42 +440,33 @@ public class SkillManager {
                     + content;
         }
 
-        Path skillDir = getSkillsDirectory().resolve(skillPath);
-        FileUtils.createDirectory(skillDir);
-        Files.writeString(skillDir.resolve("SKILL.md"), fullContent);
+        String skillPath = SkillLibrary.pathOf(kind, name);
+        Path skillMdPath = SkillLibrary.skillMd(skillPath);
+        FileUtils.createParentDirectories(skillMdPath);
+        Files.writeString(skillMdPath, fullContent);
 
         log.info("Skill imported from markdown: {}", skillPath);
-        return markPersona(syncSkillByPath(skillPath), isPersona);
-    }
-
-    /** 把 import 得到的技能标记为（非）人格，并落库。 */
-    private AgentSkillConfig markPersona(AgentSkillConfig config, boolean isPersona) {
-        config.setIsPersona(isPersona);
-        skillConfigService.updateById(config);
-        return config;
+        return syncSkillByPath(skillPath);
     }
 
     /**
      * 导出 Skill 目录为 ZIP 包（技能页与人格页共用）。
      *
-     * <p>zip 内以技能目录名作顶层目录，形如 {@code <skillPath>/SKILL.md}、
-     * {@code <skillPath>/references/doc.md} —— 与 {@link #importFromZip} 的解析正好对得上：
-     * 它会以 {@code SKILL.md} 所在目录为父路径还原技能，所以导出的包可被导入功能原样还原到同一路径（round-trip）。
-     *
-     * @param skillPath 技能相对路径（配置里的 skillPath）
-     * @return zip 的字节数组
+     * <p>zip 内以技能目录名作顶层目录，形如 {@code <名>/SKILL.md}、{@code <名>/references/doc.md}
+     * ——与 {@link #importFromZip} 的解析正好对得上：它以 {@code SKILL.md} 所在目录为名还原技能，
+     * 所以导出的包可被导入功能原样还原到同一路径（round-trip）。
      */
     public byte[] exportSkillZip(String skillPath) throws IOException {
-        Path skillDir = resolveSkillDir(skillPath);
-        String baseName = skillDir.getFileName().toString();
+        Path contentDir = resolveSkillDir(skillPath);
+        String baseName = contentDir.getFileName().toString();
         List<Path> files;
-        try (var stream = Files.walk(skillDir)) {
+        try (var stream = Files.walk(contentDir)) {
             files = stream.filter(Files::isRegularFile).collect(Collectors.toList());
         }
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         try (ZipOutputStream zos = new ZipOutputStream(bos)) {
             for (Path file : files) {
-                String rel = skillDir.relativize(file).toString().replace('\\', '/');
+                String rel = contentDir.relativize(file).toString().replace('\\', '/');
                 zos.putNextEntry(new ZipEntry(baseName + "/" + rel));
                 Files.copy(file, zos);
                 zos.closeEntry();
@@ -440,35 +476,73 @@ public class SkillManager {
         return bos.toByteArray();
     }
 
-    /**
-     * 按路径同步单个 Skill 到数据库（读取 SKILL.md，解析元数据，更新配置）
-     */
-    public AgentSkillConfig syncSkillByPath(String skillPathName) throws IOException {
-        Path skillMdPath = getSkillsDirectory().resolve(skillPathName).resolve("SKILL.md");
+    /** 按路径同步单个 Skill 到数据库（读取 SKILL.md，解析元数据，更新配置）。 */
+    public AgentSkillConfig syncSkillByPath(String skillPath) throws IOException {
+        Path skillMdPath = SkillLibrary.skillMd(skillPath);
         if (!Files.exists(skillMdPath)) {
             throw new IOException("SKILL.md not found: " + skillMdPath);
         }
         String content = Files.readString(skillMdPath);
         SkillMetadata metadata = parseSkillMetadata(content);
 
-        AgentSkillConfig config = skillConfigService.getBySkillPath(skillPathName);
+        AgentSkillConfig config = skillConfigService.getBySkillPath(skillPath);
         if (config == null) {
-            config = newConfig(skillPathName, metadata);
+            config = newConfig(skillPath, metadata);
         }
-
-        config.setSkillName(metadata.name != null ? metadata.name : skillPathName);
+        config.setSkillName(metadata.name != null ? metadata.name : SkillLibrary.nameOf(skillPath));
         config.setDescription(metadata.description);
         if (metadata.boundToolIds != null && !metadata.boundToolIds.isEmpty()) {
             config.setBoundToolIds(objectMapper.writeValueAsString(metadata.boundToolIds));
         }
         skillConfigService.saveOrUpdate(config);
-        log.info("Skill synced: {}", skillPathName);
+        log.info("Skill synced: {}", skillPath);
         return config;
     }
 
+    /** 扫库同步（保留行上的启用状态，只更新元数据）。 */
+    private void syncSkill(String skillPath, Path skillMdPath) {
+        try {
+            String content = Files.readString(skillMdPath);
+            SkillMetadata metadata = parseSkillMetadata(content);
+
+            AgentSkillConfig config = skillConfigService.getBySkillPath(skillPath);
+            if (config == null) {
+                config = newConfig(skillPath, metadata);
+            }
+            config.setSkillName(metadata.name);
+            config.setDescription(metadata.description);
+            if (metadata.boundToolIds != null && !metadata.boundToolIds.isEmpty()) {
+                config.setBoundToolIds(objectMapper.writeValueAsString(metadata.boundToolIds));
+            }
+            skillConfigService.saveOrUpdate(config);
+            log.info("Skill synced: {}", skillPath);
+        } catch (IOException e) {
+            log.error("Failed to read skill file: {}", skillMdPath, e);
+        }
+    }
+
     /**
-     * 解析 SKILL.md 的 YAML frontmatter
+     * 新建一条技能配置：默认支持所有来源，<b>声明了 {@code layer} 的内置技能默认启用</b>。
+     *
+     * <p>为什么系统层技能要默认开：persona 是 bot 行为的地基，新装环境里它要是关着的，bot 就没有人格
+     * 也没有参与纪律（技能页上看起来一切正常）。这与 {@code registerBuiltinTool} 对新增内置工具的处理
+     * 一致——只有新建这一次置 true；行一旦存在，用户在技能页的开关就说了算，同步不再碰它。
+     *
+     * <p>人格的 {@code enabled_list} 留空：它的"启用"由指派决定。若这里也填上全部来源，
+     * 一旦 {@code enabled} 打开就会被读成"三个场景全局都已指派"。
      */
+    private AgentSkillConfig newConfig(String skillPath, SkillMetadata metadata) {
+        AgentSkillConfig config = new AgentSkillConfig();
+        config.setSkillPath(skillPath);
+        config.setEnabled(metadata.layer != null && !metadata.layer.isBlank());
+        String allSourcesJson = buildAllSourcesJson();
+        config.setEnabledList(SkillLibrary.kindOf(skillPath) == SkillLibrary.Kind.PERSONA
+                ? "[]" : allSourcesJson);
+        config.setAvailableList(allSourcesJson);
+        return config;
+    }
+
+    /** 解析 SKILL.md 的 YAML frontmatter。 */
     @SuppressWarnings("unchecked")
     private SkillMetadata parseSkillMetadata(String content) {
         SkillMetadata metadata = new SkillMetadata();
@@ -507,63 +581,43 @@ public class SkillManager {
         return metadata;
     }
 
-    /**
-     * 创建 Skill 目录
-     * 
-     * @param skillPath Skill 路径（相对于 skills 目录）
-     */
+    // ========================================================================
+    // 技能目录文件树编辑（技能页与人格页共用的文件编辑器）
+    // ========================================================================
+
+    /** 创建技能目录（正文目录那一层）。 */
     public void createSkillDirectory(String skillPath) {
-        Path skillDir = getSkillsDirectory().resolve(skillPath);
-        FileUtils.createDirectory(skillDir);
+        FileUtils.createDirectory(SkillLibrary.contentDir(skillPath));
     }
 
-    /**
-     * 写入 Skill 内容
-     * 
-     * @param skillPath Skill 路径
-     * @param content SKILL.md 内容
-     */
+    /** 写入 SKILL.md。 */
     public void writeSkillContent(String skillPath, String content) throws IOException {
-        Path skillMdPath = getSkillsDirectory().resolve(skillPath).resolve("SKILL.md");
+        Path skillMdPath = SkillLibrary.skillMd(skillPath);
         FileUtils.createParentDirectories(skillMdPath);
         Files.writeString(skillMdPath, content);
     }
 
-    /**
-     * 读取 Skill 内容
-     * 
-     * @param skillPath Skill 路径
-     * @return SKILL.md 内容（不存在返回 null）
-     */
+    /** 读取 SKILL.md（不存在返回 null）。 */
     public String readSkillContent(String skillPath) throws IOException {
-        Path skillMdPath = getSkillsDirectory().resolve(skillPath).resolve("SKILL.md");
+        Path skillMdPath = SkillLibrary.skillMd(skillPath);
         if (!Files.exists(skillMdPath)) {
             return null;
         }
         return Files.readString(skillMdPath);
     }
 
-    // ========================================================================
-    // Skill 目录文件树编辑（技能页与人格页共用的文件编辑器）
-    // ========================================================================
-
     /**
      * 列出 skill 目录的文件树。
      *
      * <p>只下发目录结构与节点名，<b>不</b>带叶子内容（references/ 里可能有较大文件），
      * 内容由前端选中单个文件时按需读取。目录在前的排序便于 n-tree 直接渲染。
-     *
-     * @param skillPath skill 路径
-     * @return 根节点（目录）
      */
     public SkillFileNodeVO listFileTree(String skillPath) throws IOException {
-        Path skillDir = resolveSkillDir(skillPath);
-        return buildFileTree(skillDir, "", skillDir.getFileName().toString());
+        Path contentDir = resolveSkillDir(skillPath);
+        return buildFileTree(contentDir, "", contentDir.getFileName().toString());
     }
 
-    /**
-     * 递归构建文件树：目录在前、名字升序。
-     */
+    /** 递归构建文件树：目录在前、名字升序。 */
     private SkillFileNodeVO buildFileTree(Path dir, String relPrefix, String nodeName) throws IOException {
         SkillFileNodeVO node = new SkillFileNodeVO();
         node.setName(nodeName);
@@ -595,13 +649,7 @@ public class SkillManager {
         return node;
     }
 
-    /**
-     * 读取 skill 目录下的指定文件内容。
-     *
-     * @param skillPath skill 路径
-     * @param relPath   skill 目录内的相对路径，如 "SKILL.md"、"references/doc.md"
-     * @return 文件内容（不存在返回 null）
-     */
+    /** 读取 skill 目录下的指定文件内容（不存在返回 null）。 */
     public String readSkillFile(String skillPath, String relPath) throws IOException {
         Path file = resolveSkillFile(skillPath, relPath);
         if (!Files.exists(file) || Files.isDirectory(file)) {
@@ -614,31 +662,28 @@ public class SkillManager {
      * 按「全量快照」保存 skill 目录：前端一次性把所有文件（路径→内容）发过来，
      * 这里先清空原目录再整份重建。新建/改名/删除在前端都是对这份快照的增删，
      * 落到后端只差一次「写回」，天然覆盖改文件名（旧 key 没了、新 key 有了）。
-     *
-     * @param skillPath skill 路径
-     * @param files     相对路径 → 内容（相对 skill 目录；SKILL.md 必须存在）
      */
     public void saveSkillFiles(String skillPath, Map<String, String> files) throws IOException {
-        Path skillDir = resolveSkillDir(skillPath);
+        Path contentDir = resolveSkillDir(skillPath);
         if (!files.containsKey("SKILL.md")) {
             throw new IllegalArgumentException("SKILL.md 是 skill 的元数据文件，不能删除");
         }
         // 先写 SKILL.md，避免中途被别人读到半成品；文件原本就算不存在也会被 createParentDirectories 兜底。
-        writeSkillFile(skillDir, "SKILL.md", files.get("SKILL.md"));
+        writeSkillFile(contentDir, "SKILL.md", files.get("SKILL.md"));
         for (Map.Entry<String, String> entry : files.entrySet()) {
             if ("SKILL.md".equals(entry.getKey())) {
                 continue;
             }
-            writeSkillFile(skillDir, entry.getKey(), entry.getValue());
+            writeSkillFile(contentDir, entry.getKey(), entry.getValue());
         }
         // 快照里没有的文件/目录一并清掉（改名的旧路径、删除的文件都在这里）。
         // 先写新文件、后清旧文件，失败点尽量留在"写"这一步，旧目录被误清的风险最小。
-        deleteUnlisted(skillDir, "", files.keySet());
+        deleteUnlisted(contentDir, "", files.keySet());
     }
 
     /** 在 skill 目录下写一个文件（空内容也建，父目录自动补）。 */
-    private void writeSkillFile(Path skillDir, String relPath, String content) throws IOException {
-        Path target = resolveSkillFile(skillDir, relPath);
+    private void writeSkillFile(Path contentDir, String relPath, String content) throws IOException {
+        Path target = resolveSkillFile(contentDir, relPath);
         FileUtils.createParentDirectories(target);
         Files.writeString(target, content == null ? "" : content);
     }
@@ -666,88 +711,67 @@ public class SkillManager {
 
     /** 把相对路径安全地解析到某个 skill 目录下（防穿越，见 FileUtils.resolvePath）。 */
     private Path resolveSkillFile(String skillPath, String relPath) throws IOException {
-        Path skillDir = resolveSkillDir(skillPath);
-        return resolveSkillFile(skillDir, relPath);
+        return resolveSkillFile(resolveSkillDir(skillPath), relPath);
     }
 
-    /** 把相对路径安全地解析到某个 skill 目录下（目录已解析好）。 */
-    private Path resolveSkillFile(Path skillDir, String relPath) {
+    private Path resolveSkillFile(Path contentDir, String relPath) {
         // 空路径或 . 视为 skill 根目录，不让读/写整个目录为文件。
         if (relPath == null || relPath.isBlank() || relPath.equals(".")) {
             throw new SecurityException("非法文件路径: " + relPath);
         }
-        return FileUtils.resolvePath(skillDir, relPath);
+        return FileUtils.resolvePath(contentDir, relPath);
     }
 
-    /** skill 目录存在性校验并解析。 */
+    /** 正文目录存在性校验并解析。 */
     private Path resolveSkillDir(String skillPath) throws IOException {
         if (skillPath == null || skillPath.isBlank()) {
             throw new IllegalArgumentException("skill 路径不能为空");
         }
-        Path skillDir = getSkillsDirectory().resolve(skillPath);
-        if (!Files.isDirectory(skillDir)) {
-            throw new IOException("skill 目录不存在: " + skillDir);
+        Path contentDir = SkillLibrary.contentDir(skillPath);
+        if (!Files.isDirectory(contentDir)) {
+            throw new IOException("skill 目录不存在: " + contentDir);
         }
-        return skillDir;
+        return contentDir;
     }
 
-    // ========================================================================
-    // 人格 skill 的来源选择（每个来源互斥，只能命中一个）
-    // ========================================================================
-
-    /**
-     * 把人某来源的「当前人格」设为指定技能：先把该来源从<b>所有</b>人格里摘掉，再挂到指定技能上。
-     * 这样任何来源任一时刻至多命中一个人格，前端「每来源选一个人格」的交互落到这份互斥上。
-     *
-     * @param persistFalsePersona 目标人格路径；传 null 表示取消该来源的人格
-     * @param source              来源（web/group/private）
-     */
-    public void assignPersonaSource(String personaPath, SessionSource source) throws JsonProcessingException {
-        for (AgentSkillConfig persona : skillConfigService.listPersonas()) {
-            List<String> keys = parseSourceKeys(persona.getEnabledList());
-            boolean wasActive = keys.remove(source.getSourceKey());
-            if (personaPath != null && personaPath.equals(persona.getSkillPath())) {
-                // 目标人格：该来源要挂上；一旦有来源命中就保持启用。
-                if (!keys.contains(source.getSourceKey())) {
-                    keys.add(source.getSourceKey());
-                }
-                persona.setEnabled(true);
-            } else if (!wasActive) {
-                continue; // 别的人格、且本来就没这个来源，无需写库
-            }
-            persona.setEnabledList(objectMapper.writeValueAsString(keys));
-            if (persona.getEnabledList() != null && keys.isEmpty()) {
-                persona.setEnabled(false);
-            }
-            skillConfigService.updateById(persona);
-        }
-    }
-
-    /** 某个来源当前命中的那个「唯一人格」的 skill_path，没有则返回 null。 */
-    public String activePersonaPathFor(SessionSource source) {
-        for (AgentSkillConfig persona : skillConfigService.listPersonas()) {
-            if (supportsSource(persona, source)) {
-                return persona.getSkillPath();
-            }
-        }
-        return null;
-    }
-
-    /**
-     * 删除 Skill 目录
-     * 
-     * @param skillPath Skill 路径
-     */
+    /** 删除技能：整个插件根一起删（{@code <名>/} 下面只有这一套）。 */
     public void deleteSkillDirectory(String skillPath) throws IOException {
-        Path skillDir = getSkillsDirectory().resolve(skillPath);
-        if (Files.exists(skillDir)) {
-            deleteRecursively(skillDir);
+        Path pluginRoot = SkillLibrary.pluginRoot(skillPath);
+        if (Files.exists(pluginRoot)) {
+            deleteRecursively(pluginRoot);
         }
     }
 
-    /**
-     * 递归删除目录
-     */
+    // ========================================================================
+    // 内部工具
+    // ========================================================================
+
+    /** 整目录复制（技能目录含 references/ examples/ scripts/ 等资源，必须一起带过去）。 */
+    private void copyRecursively(Path source, Path target) throws IOException {
+        if (Files.isDirectory(source)) {
+            FileUtils.createDirectory(target);
+            try (DirectoryStream<Path> stream = Files.newDirectoryStream(source)) {
+                for (Path child : stream) {
+                    copyRecursively(child, target.resolve(child.getFileName().toString()));
+                }
+            }
+            return;
+        }
+        FileUtils.createParentDirectories(target);
+        Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
+    }
+
+    private void deleteQuietly(Path path) {
+        try {
+            if (Files.exists(path)) {
+                deleteRecursively(path);
+                log.info("已清理旧目录：{}", path);
+            }
+        } catch (IOException e) {
+            log.warn("旧目录清理失败（不影响运行，可手动删）：{}", path, e);
+        }
+    }
+
     private void deleteRecursively(Path path) throws IOException {
         if (Files.isDirectory(path)) {
             try (DirectoryStream<Path> stream = Files.newDirectoryStream(path)) {
@@ -759,13 +783,28 @@ public class SkillManager {
         Files.delete(path);
     }
 
-    /** Skill 元数据 */
-    private static class SkillMetadata {
-        String name;
-        String description;
-        List<Integer> boundToolIds;
-        /** frontmatter 里的 {@code layer}：非空表示这是随项目内置的技能（如 persona / slang），默认启用 */
-        String layer;
+    /** 解析启用列表；空或坏 JSON 一律按空处理，不让一条坏配置拖垮整次重建。 */
+    private List<String> parseKeys(String json) {
+        if (json == null || json.isBlank()) {
+            return List.of();
+        }
+        try {
+            return objectMapper.readValue(json, new TypeReference<List<String>>() {
+            });
+        } catch (JsonProcessingException e) {
+            log.warn("技能启用列表不是合法 JSON，按空处理：{}", json);
+            return List.of();
+        }
+    }
+
+    /** 解析作用域键；认不出（既不是来源键也不是作用域键）返回 null。 */
+    private PersonaScope tryParseScope(String key) {
+        try {
+            return PersonaScope.parse(key);
+        } catch (IllegalArgumentException e) {
+            log.warn("认不出的作用域键，已跳过：{}", key);
+            return null;
+        }
     }
 
     /**
@@ -795,5 +834,14 @@ public class SkillManager {
         return name.trim().toLowerCase(Locale.ROOT)
                 .replaceAll("[^a-z0-9_-]+", "-")
                 .replaceAll("^-+|-+$", "");
+    }
+
+    /** Skill 元数据 */
+    private static class SkillMetadata {
+        String name;
+        String description;
+        List<Integer> boundToolIds;
+        /** frontmatter 里的 {@code layer}：非空表示这是随项目内置的技能（如 persona / slang），默认启用 */
+        String layer;
     }
 }
