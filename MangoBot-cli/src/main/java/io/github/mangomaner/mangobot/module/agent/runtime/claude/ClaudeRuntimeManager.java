@@ -176,6 +176,18 @@ public class ClaudeRuntimeManager {
     }
 
     /**
+     * 打断某个会话正在跑的那一轮。
+     *
+     * <p>会话不存在（还没拉起过）或没有在途轮次时什么都不做——调用方不需要先判断。
+     */
+    public void interruptTurn(String key) {
+        ClaudeSession session = sessions.get(key);
+        if (session != null) {
+            session.interrupt();
+        }
+    }
+
+    /**
      * 清空某个会话的上下文：关掉进程，并删掉它自己的 config 目录（转录就在里面）。
      *
      * <p>两件事都要做：<b>只关进程不够</b>——重新拉起时带 {@code -c}，claude 会把磁盘上那份转录
@@ -604,7 +616,15 @@ public class ClaudeRuntimeManager {
      * <p>另外还要放行 MCP 工具：本项目的 claude 是 {@code -p} 起的，没有交互界面可点批准，
      * 不写白名单的话 {@code mcp__*} 一律落进 {@code permission_denials}。见 {@link #mcpAllowRules}。
      */
-    private List<String> capabilityArgs(String key, SessionSource source) {
+    /**
+     * 拉起这个会话要用的全部额外参数。
+     *
+     * <p><b>这是"会话被配置成什么样"的唯一出处</b>：技能目录、系统提示词、MCP 连接的
+     * {@code --mcp-config} 与工具白名单都在这里拼。所以除了 spawn，读上下文分析
+     * （{@code ContextAnalysisService}）也调它——那份报告报的是各分类占多少 token，
+     * 少给一个参数就会拿另一套配置去算，数字看着像真的却是错的。
+     */
+    public List<String> capabilityArgs(String key, SessionSource source) {
         List<String> args = new ArrayList<>();
 
         // headless（-p）下没有人能点「批准」，不在白名单里的工具一律被拒（结果里是 permission_denials）。

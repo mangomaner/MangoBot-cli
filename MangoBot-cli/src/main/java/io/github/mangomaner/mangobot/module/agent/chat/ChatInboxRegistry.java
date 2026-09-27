@@ -29,14 +29,27 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class ChatInboxRegistry {
+public class ChatInboxRegistry implements ChatInboxHost {
 
     private static final int TURN_POOL_CORE = 2;
     private static final int TURN_POOL_MAX = 6;
     private static final int TURN_QUEUE_CAPACITY = 64;
 
+    /**
+     * 打断时附给下一轮的控制指令。
+     *
+     * <p>为什么需要它：被打断的那一轮，模型手上那半截思路作废了，而转录里还留着它的残片。
+     * 不说清楚的话，它会以为这是一个新话题，或者去把被打断的那句话重说一遍。这句明确告诉它
+     * 前后是同一件事、要一起看。
+     */
+    private static final TurnControl INTERRUPTED_BY_NEW_MESSAGES = new TurnControl(
+            "interrupted-by-new-messages",
+            "你正在回复时，群里又来了新消息，所以刚才那轮被打断了。"
+                    + "不要把刚才被打断的内容重说一遍，请结合前后所有消息重新判断这一轮该怎么回。");
+
     private final ChatTurnRunner turnRunner;
     private final ClaudeRuntimeProperties properties;
+    private final TurnControlRegistry turnControls;
 
     private final Map<String, ChatInbox> inboxes = new ConcurrentHashMap<>();
 
@@ -66,12 +79,26 @@ public class ChatInboxRegistry {
         inbox.offer(line);
     }
 
+    /**
+     * 打断某个聊天正在跑的那一轮，并给下一轮留一条"这是接着刚才说的"的控制指令。
+     *
+     * <p>由 {@link ChatInbox} 在判断"值得打断"之后调用，预算也在那边管。
+     */
+    @Override
+    public void interruptTurn(ChatInbox inbox) {
+        String sessionKey = inbox.target().sessionKey();
+        turnControls.appendOnce(sessionKey, INTERRUPTED_BY_NEW_MESSAGES);
+        turnRunner.interrupt(sessionKey);
+        log.info("群里来了新消息，打断当前轮：{}", sessionKey);
+    }
+
     /** 排一次防抖到期检查；代次过期时任务自己会无操作。 */
-    void scheduleDebounce(ChatInbox inbox, long generation) {
+    @Override
+    public void scheduleDebounce(ChatInbox inbox, long generation) {
         long delay = Math.max(0L, properties.getGroupDebounceMillis());
         debounceTimer.schedule(() -> {
             try {
-                inbox.fireIfWindow(generation);
+                inbox.onDebounceFired(generation);
             } catch (Exception e) {
                 log.error("防抖到期处理失败：{}", inbox.target().sessionKey(), e);
             }
@@ -79,7 +106,8 @@ public class ChatInboxRegistry {
     }
 
     /** 把一批消息交给轮次池；池满时丢弃并告警（不回压派发线程）。 */
-    void startTurn(ChatInbox inbox, List<IncomingLine> batch) {
+    @Override
+    public void startTurn(ChatInbox inbox, List<IncomingLine> batch) {
         ChatTarget target = inbox.target();
         try {
             turnPool.execute(() -> {

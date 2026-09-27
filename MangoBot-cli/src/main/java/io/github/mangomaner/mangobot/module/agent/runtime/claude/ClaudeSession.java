@@ -159,6 +159,40 @@ public class ClaudeSession {
                 });
     }
 
+    /**
+     * 打断正在跑的这一轮。
+     *
+     * <p>用得上它的场景：群里又来了一批消息，与其让 bot 把基于旧快照的话说完（说出来的往往已经过时），
+     * 不如掐掉重来。代价是这一轮已经做的工作作废——<b>但它已经发出去的消息收不回</b>，所以越早打断越好。
+     *
+     * <p>实测（claude v2.1.128）：CLI 收到后立刻停止生成，并以
+     * {@code result(subtype=error_during_execution)} 收尾。所以事件管道不用特殊处理——该 result
+     * 会照常走 {@link #onEvent} 里那条"完成 sink + 放行闸门"的路。
+     *
+     * <p>没有在途轮次时发也无妨：CLI 回一个 success 的 {@code control_response}，什么都不做。
+     */
+    public void interrupt() {
+        ClaudeProcess p = process;
+        if (p == null || !p.isAlive()) {
+            return;
+        }
+        try {
+            p.writeLine(interruptRequestJson());
+            log.info("已请求打断当前轮：session={}", key);
+        } catch (IOException e) {
+            log.warn("发送打断请求失败：session={}", key, e);
+        }
+    }
+
+    /** 打断用的控制请求。字段形状照 CLI 的 stream-json 控制协议抄，实测有效。 */
+    private static String interruptRequestJson() throws IOException {
+        ObjectNode root = MAPPER.createObjectNode();
+        root.put("type", "control_request");
+        root.put("request_id", java.util.UUID.randomUUID().toString());
+        root.putObject("request").put("subtype", "interrupt");
+        return MAPPER.writeValueAsString(root);
+    }
+
     public boolean isRunning() {
         ClaudeProcess p = process;
         return p != null && p.isAlive();

@@ -50,6 +50,16 @@ public class ChatTurnRunner {
     private final ClaudeRuntimeProperties properties;
     private final TurnControlRegistry turnControls;
 
+    /**
+     * 打断某个会话正在跑的那一轮。
+     *
+     * <p>走 {@link ClaudeRuntimeManager} 而不是自己持有会话：轮次是由 runner 起的，但会话的生命周期
+     * 归管理器，这里只是把请求转过去。
+     */
+    void interrupt(String sessionKey) {
+        runtimeManager.interruptTurn(sessionKey);
+    }
+
     public void run(ChatTarget target, List<IncomingLine> batch) {
         if (batch.isEmpty()) {
             return;

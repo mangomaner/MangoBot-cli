@@ -2,6 +2,7 @@ package io.github.mangomaner.mangobot.module.agent.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import io.github.mangomaner.mangobot.module.agent.capability.prompt.SystemPromptComposer;
+import io.github.mangomaner.mangobot.module.agent.context.ContextAnalysisService;
 import io.github.mangomaner.mangobot.module.agent.context.ContextTranscriptService;
 import io.github.mangomaner.mangobot.module.agent.model.enums.SessionSource;
 import io.github.mangomaner.mangobot.system.common.BaseResponse;
@@ -30,6 +31,7 @@ import java.util.List;
 public class AgentContextController {
 
     private final ContextTranscriptService transcriptService;
+    private final ContextAnalysisService analysisService;
     private final SystemPromptComposer systemPromptComposer;
 
     /**
@@ -39,10 +41,25 @@ public class AgentContextController {
      * 传进去的，所以这里现拼一份给页面看。
      */
     public record TranscriptVO(String sessionKey, String sessionId, long fileSize, int lineCount,
-                               String systemPrompt, List<String> sessionIds, List<RecordVO> records) {
+                               String systemPrompt, List<String> sessionIds, List<RecordVO> records,
+                               List<ContextAnalysisService.CallUsage> usage) {
     }
 
     public record RecordVO(int index, String type, JsonNode json) {
+    }
+
+    @GetMapping("/report")
+    @Operation(summary = "让 CLI 给出上下文分类明细（会复制一份会话目录再跑，跑完删除）")
+    public BaseResponse<String> report(@RequestParam String botId,
+                                       @RequestParam String source,
+                                       @RequestParam String targetId,
+                                       @RequestParam(required = false) String sessionId) {
+        SessionSource sessionSource = parseSource(source);
+        if (sessionSource == null) {
+            return ResultUtils.error(400, "来源不认识：" + source);
+        }
+        return ResultUtils.success(analysisService.reportFromCli(
+                ContextTranscriptService.sessionKey(botId, source, targetId), sessionSource, sessionId));
     }
 
     @GetMapping("/transcript")
@@ -66,7 +83,7 @@ public class AgentContextController {
         if (transcript == null) {
             // 没有转录不是错误：刚建的会话还没跑过任何一轮
             return ResultUtils.success(
-                    new TranscriptVO(key, null, 0, 0, systemPrompt, sessionIds, List.of()));
+                    new TranscriptVO(key, null, 0, 0, systemPrompt, sessionIds, List.of(), List.of()));
         }
 
         List<RecordVO> records = new ArrayList<>();
@@ -74,7 +91,8 @@ public class AgentContextController {
             records.add(new RecordVO(record.index(), record.type(), transcriptService.truncate(record.json())));
         }
         return ResultUtils.success(new TranscriptVO(key, transcript.sessionId(),
-                transcript.fileSize(), transcript.lineCount(), systemPrompt, sessionIds, records));
+                transcript.fileSize(), transcript.lineCount(), systemPrompt, sessionIds, records,
+                analysisService.usageByCall(key, transcript.sessionId())));
     }
 
     @GetMapping("/image")
