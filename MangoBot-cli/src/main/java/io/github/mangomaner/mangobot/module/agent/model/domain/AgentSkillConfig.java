@@ -52,6 +52,12 @@ public class AgentSkillConfig implements Serializable {
     private Boolean enabled;
 
     /**
+     * 是否是人格 skill（由导入界面决定）
+     */
+    @TableField(value = "is_persona")
+    private Boolean isPersona;
+
+    /**
      * 启用列表（当前启用的来源）
      */
     @TableField(value = "enabled_list")

@@ -33,6 +33,18 @@ public class AgentSkillConfigServiceImpl extends ServiceImpl<AgentSkillConfigMap
     }
 
     @Override
+    public List<AgentSkillConfig> listSkills() {
+        return list(new LambdaQueryWrapper<AgentSkillConfig>()
+                .ne(AgentSkillConfig::getIsPersona, true));
+    }
+
+    @Override
+    public List<AgentSkillConfig> listPersonas() {
+        return list(new LambdaQueryWrapper<AgentSkillConfig>()
+                .eq(AgentSkillConfig::getIsPersona, true));
+    }
+
+    @Override
     public void updateEnabledList(Integer id, List<SessionSource> enabledList) {
         AgentSkillConfig config = getById(id);
         if (config == null) {

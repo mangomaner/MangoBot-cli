@@ -413,6 +413,9 @@ CREATE TABLE agent_skill_config (
     -- 绑定的工具 id 列表
     bound_tool_ids TEXT,                        -- JSON 数组: [1, 2, 3]
 
+    -- 是否是人格 skill（由导入界面决定，见 SkillSchema 兜底补列）
+    is_persona BOOLEAN DEFAULT 0,
+
     -- 状态
     enabled BOOLEAN DEFAULT FALSE,
 

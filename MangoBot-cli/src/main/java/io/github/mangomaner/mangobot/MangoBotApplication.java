@@ -4,6 +4,7 @@ import io.github.mangomaner.mangobot.adapter.onebot.service.OneBotConfigService;
 import io.github.mangomaner.mangobot.api.MangoApiManager;
 import io.github.mangomaner.mangobot.api.MangoToolApi;
 import io.github.mangomaner.mangobot.module.agent.capability.skill.SkillManager;
+import io.github.mangomaner.mangobot.module.agent.capability.skill.SkillSchema;
 import io.github.mangomaner.mangobot.module.agent.capability.tool.JavaToolMcpServer;
 import io.github.mangomaner.mangobot.module.agent.capability.tool.builtin.DateTimeTool;
 import io.github.mangomaner.mangobot.module.agent.model.enums.SessionSource;
@@ -58,10 +59,14 @@ public class MangoBotApplication {
         ClaudeRuntimeManager claudeRuntimeManager = context.getBean(ClaudeRuntimeManager.class);
         SimSchema simSchema = context.getBean(SimSchema.class);
         FileSchema fileSchema = context.getBean(FileSchema.class);
+        SkillSchema skillSchema = context.getBean(SkillSchema.class);
 
         apiManager.init();
         log.info("[1/5] 静态 API 初始化完成");
 
+        // agent_skill_config 的人格列补列要先于 Skill 同步跑：老库在 DB 文件不存在时才跑的 schema.sql
+        // 拿不到新增列，得靠这里 ALTER TABLE；而 SkillManager.init 会读这张表，所以必须放前面。
+        skillSchema.init();
         skillManager.init();
         log.info("[2/5] Skill 同步完成（能力目录与按来源的插件目录一并就绪）");
 

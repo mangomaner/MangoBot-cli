@@ -13,6 +13,16 @@ public interface AgentSkillConfigService extends IService<AgentSkillConfig> {
     List<AgentSkillConfig> listEnabled();
 
     /**
+     * 列出普通技能（非人格 skill），供「技能」页使用。
+     */
+    List<AgentSkillConfig> listSkills();
+
+    /**
+     * 列出人格 skill，供「人格」页使用。
+     */
+    List<AgentSkillConfig> listPersonas();
+
+    /**
      * 更新 Skill 的启用来源列表
      *
      * @param id          Skill ID

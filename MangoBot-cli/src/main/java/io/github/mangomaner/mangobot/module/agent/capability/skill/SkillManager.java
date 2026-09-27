@@ -5,6 +5,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.mangomaner.mangobot.module.agent.model.domain.AgentSkillConfig;
 import io.github.mangomaner.mangobot.module.agent.model.enums.SessionSource;
+import io.github.mangomaner.mangobot.module.agent.model.vo.SkillFileNodeVO;
 import io.github.mangomaner.mangobot.module.agent.service.AgentSkillConfigService;
 import io.github.mangomaner.mangobot.utils.FileUtils;
 import lombok.RequiredArgsConstructor;
@@ -12,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.yaml.snakeyaml.Yaml;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -22,6 +24,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.*;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
+import java.util.zip.ZipOutputStream;
 import java.util.stream.Collectors;
 
 /**
@@ -271,6 +274,7 @@ public class SkillManager {
         AgentSkillConfig config = new AgentSkillConfig();
         config.setSkillPath(skillPathName);
         config.setEnabled(metadata.layer != null && !metadata.layer.isBlank());
+        config.setIsPersona(false);
         String allSourcesJson = buildAllSourcesJson();
         config.setEnabledList(allSourcesJson);
         config.setAvailableList(allSourcesJson);
@@ -283,7 +287,7 @@ public class SkillManager {
      * @param zipStream ZIP 输入流
      * @return 导入后的 Skill 配置（默认禁用，需手动启用）
      */
-    public AgentSkillConfig importFromZip(InputStream zipStream) throws IOException {
+    public AgentSkillConfig importFromZip(InputStream zipStream, boolean isPersona) throws IOException {
         Path skillsRoot = getSkillsDirectory();
         FileUtils.createDirectory(skillsRoot);
 
@@ -358,7 +362,7 @@ public class SkillManager {
         }
 
         log.info("Skill imported from zip: {}", skillPath);
-        return syncSkillByPath(skillPath);
+        return markPersona(syncSkillByPath(skillPath), isPersona);
     }
 
     /**
@@ -369,7 +373,7 @@ public class SkillManager {
      * @param content     SKILL.md 内容
      * @return 导入后的 Skill 配置（默认禁用）
      */
-    public AgentSkillConfig importFromMarkdown(String skillName, String description, String content) throws IOException {
+    public AgentSkillConfig importFromMarkdown(String skillName, String description, String content, boolean isPersona) throws IOException {
         String skillPath = sanitizePath(skillName);
         if (skillPath == null || skillPath.isEmpty()) {
             throw new IOException("技能名称不能为空或非法");
@@ -389,7 +393,44 @@ public class SkillManager {
         Files.writeString(skillDir.resolve("SKILL.md"), fullContent);
 
         log.info("Skill imported from markdown: {}", skillPath);
-        return syncSkillByPath(skillPath);
+        return markPersona(syncSkillByPath(skillPath), isPersona);
+    }
+
+    /** 把 import 得到的技能标记为（非）人格，并落库。 */
+    private AgentSkillConfig markPersona(AgentSkillConfig config, boolean isPersona) {
+        config.setIsPersona(isPersona);
+        skillConfigService.updateById(config);
+        return config;
+    }
+
+    /**
+     * 导出 Skill 目录为 ZIP 包（技能页与人格页共用）。
+     *
+     * <p>zip 内以技能目录名作顶层目录，形如 {@code <skillPath>/SKILL.md}、
+     * {@code <skillPath>/references/doc.md} —— 与 {@link #importFromZip} 的解析正好对得上：
+     * 它会以 {@code SKILL.md} 所在目录为父路径还原技能，所以导出的包可被导入功能原样还原到同一路径（round-trip）。
+     *
+     * @param skillPath 技能相对路径（配置里的 skillPath）
+     * @return zip 的字节数组
+     */
+    public byte[] exportSkillZip(String skillPath) throws IOException {
+        Path skillDir = resolveSkillDir(skillPath);
+        String baseName = skillDir.getFileName().toString();
+        List<Path> files;
+        try (var stream = Files.walk(skillDir)) {
+            files = stream.filter(Files::isRegularFile).collect(Collectors.toList());
+        }
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        try (ZipOutputStream zos = new ZipOutputStream(bos)) {
+            for (Path file : files) {
+                String rel = skillDir.relativize(file).toString().replace('\\', '/');
+                zos.putNextEntry(new ZipEntry(baseName + "/" + rel));
+                Files.copy(file, zos);
+                zos.closeEntry();
+            }
+        }
+        log.info("Skill exported to zip: {}", skillPath);
+        return bos.toByteArray();
     }
 
     /**
@@ -493,6 +534,196 @@ public class SkillManager {
             return null;
         }
         return Files.readString(skillMdPath);
+    }
+
+    // ========================================================================
+    // Skill 目录文件树编辑（技能页与人格页共用的文件编辑器）
+    // ========================================================================
+
+    /**
+     * 列出 skill 目录的文件树。
+     *
+     * <p>只下发目录结构与节点名，<b>不</b>带叶子内容（references/ 里可能有较大文件），
+     * 内容由前端选中单个文件时按需读取。目录在前的排序便于 n-tree 直接渲染。
+     *
+     * @param skillPath skill 路径
+     * @return 根节点（目录）
+     */
+    public SkillFileNodeVO listFileTree(String skillPath) throws IOException {
+        Path skillDir = resolveSkillDir(skillPath);
+        return buildFileTree(skillDir, "", skillDir.getFileName().toString());
+    }
+
+    /**
+     * 递归构建文件树：目录在前、名字升序。
+     */
+    private SkillFileNodeVO buildFileTree(Path dir, String relPrefix, String nodeName) throws IOException {
+        SkillFileNodeVO node = new SkillFileNodeVO();
+        node.setName(nodeName);
+        node.setPath(relPrefix.isEmpty() ? "" : relPrefix);
+        node.setDirectory(true);
+
+        List<Path> children = new ArrayList<>();
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
+            for (Path child : stream) {
+                children.add(child);
+            }
+        }
+        // 目录在前，同级按文件名升序。
+        children.sort(Comparator.comparing((Path p) -> Files.isDirectory(p)).thenComparing(Path::getFileName));
+        for (Path child : children) {
+            boolean isDir = Files.isDirectory(child);
+            String name = child.getFileName().toString();
+            String childPath = relPrefix.isEmpty() ? name : relPrefix + "/" + name;
+            if (isDir) {
+                node.getChildren().add(buildFileTree(child, childPath, name));
+            } else {
+                SkillFileNodeVO leaf = new SkillFileNodeVO();
+                leaf.setName(name);
+                leaf.setPath(childPath);
+                leaf.setDirectory(false);
+                node.getChildren().add(leaf);
+            }
+        }
+        return node;
+    }
+
+    /**
+     * 读取 skill 目录下的指定文件内容。
+     *
+     * @param skillPath skill 路径
+     * @param relPath   skill 目录内的相对路径，如 "SKILL.md"、"references/doc.md"
+     * @return 文件内容（不存在返回 null）
+     */
+    public String readSkillFile(String skillPath, String relPath) throws IOException {
+        Path file = resolveSkillFile(skillPath, relPath);
+        if (!Files.exists(file) || Files.isDirectory(file)) {
+            return null;
+        }
+        return Files.readString(file);
+    }
+
+    /**
+     * 按「全量快照」保存 skill 目录：前端一次性把所有文件（路径→内容）发过来，
+     * 这里先清空原目录再整份重建。新建/改名/删除在前端都是对这份快照的增删，
+     * 落到后端只差一次「写回」，天然覆盖改文件名（旧 key 没了、新 key 有了）。
+     *
+     * @param skillPath skill 路径
+     * @param files     相对路径 → 内容（相对 skill 目录；SKILL.md 必须存在）
+     */
+    public void saveSkillFiles(String skillPath, Map<String, String> files) throws IOException {
+        Path skillDir = resolveSkillDir(skillPath);
+        if (!files.containsKey("SKILL.md")) {
+            throw new IllegalArgumentException("SKILL.md 是 skill 的元数据文件，不能删除");
+        }
+        // 先写 SKILL.md，避免中途被别人读到半成品；文件原本就算不存在也会被 createParentDirectories 兜底。
+        writeSkillFile(skillDir, "SKILL.md", files.get("SKILL.md"));
+        for (Map.Entry<String, String> entry : files.entrySet()) {
+            if ("SKILL.md".equals(entry.getKey())) {
+                continue;
+            }
+            writeSkillFile(skillDir, entry.getKey(), entry.getValue());
+        }
+        // 快照里没有的文件/目录一并清掉（改名的旧路径、删除的文件都在这里）。
+        // 先写新文件、后清旧文件，失败点尽量留在"写"这一步，旧目录被误清的风险最小。
+        deleteUnlisted(skillDir, "", files.keySet());
+    }
+
+    /** 在 skill 目录下写一个文件（空内容也建，父目录自动补）。 */
+    private void writeSkillFile(Path skillDir, String relPath, String content) throws IOException {
+        Path target = resolveSkillFile(skillDir, relPath);
+        FileUtils.createParentDirectories(target);
+        Files.writeString(target, content == null ? "" : content);
+    }
+
+    /** 删除快照里没有列出的文件/目录（保留快照中存在的）。keepSet 是相对根目录的全量完整路径。 */
+    private void deleteUnlisted(Path dir, String relPrefix, Set<String> keepSet) throws IOException {
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
+            for (Path child : stream) {
+                String name = child.getFileName().toString();
+                String fullPath = relPrefix.isEmpty() ? name : relPrefix + "/" + name;
+                if (Files.isDirectory(child)) {
+                    // 目录本身在快照里永远不是 key；只要下面还有文件命中就保留并深入，否则整棵删掉。
+                    boolean keepAny = keepSet.stream().anyMatch(k -> k.startsWith(fullPath + "/"));
+                    if (keepAny) {
+                        deleteUnlisted(child, fullPath, keepSet);
+                    } else {
+                        deleteRecursively(child);
+                    }
+                } else if (!keepSet.contains(fullPath)) {
+                    Files.delete(child);
+                }
+            }
+        }
+    }
+
+    /** 把相对路径安全地解析到某个 skill 目录下（防穿越，见 FileUtils.resolvePath）。 */
+    private Path resolveSkillFile(String skillPath, String relPath) throws IOException {
+        Path skillDir = resolveSkillDir(skillPath);
+        return resolveSkillFile(skillDir, relPath);
+    }
+
+    /** 把相对路径安全地解析到某个 skill 目录下（目录已解析好）。 */
+    private Path resolveSkillFile(Path skillDir, String relPath) {
+        // 空路径或 . 视为 skill 根目录，不让读/写整个目录为文件。
+        if (relPath == null || relPath.isBlank() || relPath.equals(".")) {
+            throw new SecurityException("非法文件路径: " + relPath);
+        }
+        return FileUtils.resolvePath(skillDir, relPath);
+    }
+
+    /** skill 目录存在性校验并解析。 */
+    private Path resolveSkillDir(String skillPath) throws IOException {
+        if (skillPath == null || skillPath.isBlank()) {
+            throw new IllegalArgumentException("skill 路径不能为空");
+        }
+        Path skillDir = getSkillsDirectory().resolve(skillPath);
+        if (!Files.isDirectory(skillDir)) {
+            throw new IOException("skill 目录不存在: " + skillDir);
+        }
+        return skillDir;
+    }
+
+    // ========================================================================
+    // 人格 skill 的来源选择（每个来源互斥，只能命中一个）
+    // ========================================================================
+
+    /**
+     * 把人某来源的「当前人格」设为指定技能：先把该来源从<b>所有</b>人格里摘掉，再挂到指定技能上。
+     * 这样任何来源任一时刻至多命中一个人格，前端「每来源选一个人格」的交互落到这份互斥上。
+     *
+     * @param persistFalsePersona 目标人格路径；传 null 表示取消该来源的人格
+     * @param source              来源（web/group/private）
+     */
+    public void assignPersonaSource(String personaPath, SessionSource source) throws JsonProcessingException {
+        for (AgentSkillConfig persona : skillConfigService.listPersonas()) {
+            List<String> keys = parseSourceKeys(persona.getEnabledList());
+            boolean wasActive = keys.remove(source.getSourceKey());
+            if (personaPath != null && personaPath.equals(persona.getSkillPath())) {
+                // 目标人格：该来源要挂上；一旦有来源命中就保持启用。
+                if (!keys.contains(source.getSourceKey())) {
+                    keys.add(source.getSourceKey());
+                }
+                persona.setEnabled(true);
+            } else if (!wasActive) {
+                continue; // 别的人格、且本来就没这个来源，无需写库
+            }
+            persona.setEnabledList(objectMapper.writeValueAsString(keys));
+            if (persona.getEnabledList() != null && keys.isEmpty()) {
+                persona.setEnabled(false);
+            }
+            skillConfigService.updateById(persona);
+        }
+    }
+
+    /** 某个来源当前命中的那个「唯一人格」的 skill_path，没有则返回 null。 */
+    public String activePersonaPathFor(SessionSource source) {
+        for (AgentSkillConfig persona : skillConfigService.listPersonas()) {
+            if (supportsSource(persona, source)) {
+                return persona.getSkillPath();
+            }
+        }
+        return null;
     }
 
     /**
